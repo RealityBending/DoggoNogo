@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <!-- Title shown in tab -->
+        <title>University of Sussex - Research</title>
+
+        <!-- Load all necessary plugins -->
+        <script src="https://unpkg.com/jspsych"></script>
+        <script src="https://unpkg.com/@jspsych/plugin-browser-check"></script>
+        <script src="https://unpkg.com/@jspsych/plugin-survey-text"></script>
+        <script src="https://unpkg.com/@jspsych/plugin-survey-multi-choice"></script>
+        <script src="https://unpkg.com/@jspsych/plugin-html-button-response"></script>
+
+        <!-- Load parameters here (always below the loading of the JsPsych) -->
+        <script src="demographics.js"></script>
+
+        <link
+            href="https://unpkg.com/jspsych/css/jspsych.css"
+            rel="stylesheet"
+            type="text/css"
+        />
+    </head>
+
+    <body></body>
+
+    <script>
+        // Initialize experiment =================================================
+        var timeline = []
+
+        var jsPsych = initJsPsych({
+            on_finish: function () {
+                // Display data in browser (useful for debugging)
+                jsPsych.data.displayData("json")
+            },
+        })
+
+        // Session and Participant Info ----------------------------------------
+        timeline.push(demographics_participant_id)
+        timeline.push(demographics_browser_info)
+        timeline.push(demographics_consent)
+        timeline.push(demographics_info)
+
+        /* ----------------- Run the timeline ----------------- */
+        jsPsych.run(timeline)
+        // jsPsych.simulate(timeline, "data-only")
+    </script>
+</html>
