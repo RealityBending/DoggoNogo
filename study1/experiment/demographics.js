@@ -155,6 +155,21 @@ var demographics_freetext = {
             placeholder: "e.g., Caucasian",
             name: "ethnicity",
         },
+        {
+            prompt: "How many hours per week on average do you spend playing speed-based video games (e.g., first-person shooters, ...)?",
+            placeholder: "e.g., '6'",
+            name: "gaming",
+        },
+        {
+            prompt: "How many hours per day on average do you spend on social media such as Instagram and TikTok?",
+            placeholder: "e.g., '2.5'",
+            name: "social",
+        },
+        {
+            prompt: "How many hours per week on average do you spend physically exercising (e.g., running, cycling, ...)?",
+            placeholder: "e.g., '1'",
+            name: "sport",
+        },
     ],
     data: {
         screen: "demographics_2",
