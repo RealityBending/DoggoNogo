@@ -65,13 +65,13 @@ function demographics_consent(experimenter = "DEFAULT") {
             "<h1>Informed Consent</h1>" +
             // Overview
             "<p align='left'><b>Invitation to Take Part</b><br>" +
-            "You are being invited to take part in a research study to further our understanding of Human psychology. Thank you for carefully reading this information sheet. This study is being conducted by Dr Dominique Makowski from the School of Psychology, University of Sussex, who is happy to be contacted (D.Makowski@sussex.ac.uk) if you have any questions.</p>" +
+            "You are being invited to take part in a research study to further our understanding of Human psychology. Thank you for carefully reading this information sheet. This study is being conducted by Dr Dominique Makowski and Auz Moore from the School of Psychology, University of Sussex, who are happy to be contacted (D.Makowski@sussex.ac.uk, am2351@sussex.ac.uk) if you have any questions.</p>" +
             // Description
             "<p align='left'><b>Why have I been invited and what will I do?</b><br>" +
-            "We are surveying adults to understand how mood fluctuations and mood disorders symptoms (or absence thereof) are expressed and what difficulties they can generate. This study contains various questionnaires about your personality, feelings and current state of mind. The whole experiment will take you <b>about 10 min</b> to complete. Please make you sure that you are in a quiet environment, and that you have time to complete it in one go.</p>" +
+            "We are surveying adults to develop and optimize and reaction time task, you will be asked to fill out a few demographic questions followed by two short questionnaires, the first being a personality trait questionnaire and the second being a four-item questionnaire to measure depression symptoms. You will then be asked to run through reaction time trials. The whole experiment should last no longer than 20 minutes.</p>" +
             // Results and personal information
             "<p align='left'><b>What will happen to the results and my personal information?</b><br>" +
-            "The results of this research may be written into a scientific publication. Your anonymity will be ensured in the way described in the consent information below. Please read this information carefully and then, if you wish to take part, please acknowledge that you have fully understood this sheet, and that you consent to take part in the study as it is described here.</p>" +
+            "The results of this research may be written into a scientific publication. Your anonymity will be ensured in the way described in the consent information below. Please read this information carefully and then, if you wish to take part, please acknowledge that you have fully understood this sheet and that you consent to take part in the study as it is described here.</p>" +
             "<p align='left'><b>Consent</b><br></p>" +
             // Bullet points
             "<li align='left'>I understand that by signing below I am agreeing to take part in the University of Sussex research described here, and that I have read and understood this information sheet</li>" +
@@ -80,10 +80,10 @@ function demographics_consent(experimenter = "DEFAULT") {
             "<li align='left'>I understand that my personal data will be used for the purposes of this research study and will be handled in accordance with Data Protection legislation. I understand that the University's Privacy Notice provides further information on how the University uses personal data in its research.</li>" +
             "<li align='left'>I understand that my collected data will be stored in a de-identified way. De-identified data may be made publically available through secured scientific online data repositories.</li>" +
             "</p>" +
-            // "<p align='left'>Your participation in this research will be kept completely confidential. Your responses are entirely anonymous, and no IP address or any identifiers is collected.</p>" +
-            // "<p align='left'><b>By participating, you agree to follow the instructions and provide honest answers.</b> If you do not wish to participate this survey, simply close your browser.</p>" +
+            // "<p align='left'>Your participation in this research will be kept completely confidential. Your responses are entirely anonymous, and no address or any identifiers are collected.</p>" +
+            // "<p align='left'><b>By participating, you agree to follow the instructions and provide honest answers.</b> If you do not wish to participate in this experiment, please inform the researcher present.</p>" +
             // "<p>Please note that various checks will be performed to ensure the validity of the data.<br>We reserve the right to return your participation or prorate reimbursement should we detect non-valid responses (e.g., random pattern of answers, instructions not read, ...).</p>"
-            "<p align='left'><br><sub><sup>For further information about this research, or if you have any concerns, please contact Dr Dominique Makowski (D.Makowski@sussex.ac.uk). This research has been approved (ER/NAAA21/1) by the ethics board of the School of Psychology. The University of Sussex has insurance in place to cover its legal liabilities in respect of this study.</sup></sub></p>",
+            "<p align='left'><br><sub><sup>For further information about this research, or if you have any concerns, please contact Dr Dominique Makowski (D.Makowski@sussex.ac.uk). This research has been approved (WILL BE) by the ethics board of the School of Psychology. The University of Sussex has insurance in place to cover its legal liabilities in respect of this study.</sup></sub></p>",
 
         choices: ["I read, understood, and I consent"],
         data: { screen: "consent" },
