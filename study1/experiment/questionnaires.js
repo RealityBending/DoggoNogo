@@ -134,3 +134,83 @@ var questionnaire_ipip6 = {
         screen: "questionnaire_ipip6",
     },
 }
+
+
+// Exercise questionnaire 
+var Exercise_instructions =
+    "<p><b>About your exercise habits...</b></p>" +
+    
+
+var Exercise_items = [
+    "<p>Over the <b>last 2 weeks</b>, how many hours have you engaged in intense exercise or sport?</p>"
+]
+
+var Exercise_dimensions = [
+    "Exercise_1"
+]
+
+var Exercise_questions = []
+for (const [index, element] of Exercise_items.entries()) {
+    Exercise_questions.push({
+        prompt: "<b>" + element + "</b>",
+        name: Exercise_dimensions[index],
+        labels: [
+            "<br>Not at all",
+            "<br>Once or two hours", 
+            "<br>Three to five hours",
+            "<br>Between 6 and 8 hours",
+            "<br>More than 8 hours worth",
+        ],
+        required: true,
+    })
+}
+
+var questionnaire_exercise = {
+    type: jsPsychSurveyLikert,
+    questions: Exercise_questions,
+    randomize_question_order: false,
+    preamble: Exercise_instructions,
+    data: {
+        screen: "questionnaire_exercise",
+    },
+}
+
+// virtual stimuli use questionaire
+
+var virtualstim_instructions =
+    "<p><b>About your online habits...</b></p>" +
+    
+
+var virtualstim_items = [
+    "<p>Over the <b>last 2 weeks</b>, how many hours have you engaged in fast stimuli activity online, an example could be scrolling through tiktok or playing an fast game such as Call of Duty or CandyCrush</p>"
+]
+
+var virtualstim_dimensions = [
+    "Exercise_1"
+]
+
+var virtualstim_questions = []
+for (const [index, element] of virtualstim_items.entries()) {
+    virtualstim_questions.push({
+        prompt: "<b>" + element + "</b>",
+        name: virtualstim_dimensions[index],
+        labels: [
+            "<br>Not at all",
+            "<br>Once or two hours", 
+            "<br>Three to five hours",
+            "<br>Between 6 and 8 hours",
+            "<br>More than 8 hours worth",
+        ],
+        required: true,
+    })
+}
+
+var questionnaire_exercise = {
+    type: jsPsychSurveyLikert,
+    questions: virtualstim_questions,
+    randomize_question_order: false,
+    preamble: virtualstim_instructions,
+    data: {
+        screen: "questionnaire_virtualstim",
+    },
+}
