@@ -175,7 +175,7 @@ var questionnaire_exercise = {
     },
 }
 
-// virtual stimuli use questionaire
+// virtual stimuli use questionnaire
 
 var virtualstim_instructions =
     "<p><b>About your online habits...</b></p>" +
@@ -186,7 +186,7 @@ var virtualstim_items = [
 ]
 
 var virtualstim_dimensions = [
-    "Exercise_1"
+    "virtualstim_1"
 ]
 
 var virtualstim_questions = []
