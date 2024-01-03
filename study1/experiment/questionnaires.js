@@ -205,7 +205,7 @@ for (const [index, element] of virtualstim_items.entries()) {
     })
 }
 
-var questionnaire_exercise = {
+var questionnaire_virtualstim = {
     type: jsPsychSurveyLikert,
     questions: virtualstim_questions,
     randomize_question_order: false,
