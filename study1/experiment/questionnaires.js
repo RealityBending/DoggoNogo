@@ -138,8 +138,8 @@ var questionnaire_ipip6 = {
 
 // Exercise questionnaire 
 var Exercise_instructions =
-    "<p><b>About your exercise habits...</b></p>" +
-    
+    "<p><b>About your exercise habits...</b></p>"
+
 
 var Exercise_items = [
     "<p>Over the <b>last 2 weeks</b>, how many hours have you engaged in intense exercise or sport?</p>"
@@ -156,7 +156,7 @@ for (const [index, element] of Exercise_items.entries()) {
         name: Exercise_dimensions[index],
         labels: [
             "<br>Not at all",
-            "<br>Once or two hours", 
+            "<br>Once or two hours",
             "<br>Three to five hours",
             "<br>Between 6 and 8 hours",
             "<br>More than 8 hours worth",
@@ -178,8 +178,8 @@ var questionnaire_exercise = {
 // virtual stimuli use questionnaire
 
 var virtualstim_instructions =
-    "<p><b>About your online habits...</b></p>" +
-    
+    "<p><b>About your online habits...</b></p>"
+
 
 var virtualstim_items = [
     "<p>Over the <b>last 2 weeks</b>, how many hours have you engaged in fast stimuli activity online, an example could be scrolling through tiktok or playing an fast game such as Call of Duty or CandyCrush</p>"
@@ -196,7 +196,7 @@ for (const [index, element] of virtualstim_items.entries()) {
         name: virtualstim_dimensions[index],
         labels: [
             "<br>Not at all",
-            "<br>Once or two hours", 
+            "<br>Once or two hours",
             "<br>Three to five hours",
             "<br>Between 6 and 8 hours",
             "<br>More than 8 hours worth",
