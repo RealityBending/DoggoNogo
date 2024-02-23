@@ -100,7 +100,7 @@ var demographics_endscreen = {
     type: jsPsychHtmlButtonResponse,
     stimulus:
         "<h1>Thank you</h1>" +
-        "<p>Please now complete the DogoNogo game, and then return </p> ",+
+        "<p>Please now complete the DogoNogo game, and then return </li> </p> ",+
         "<p> <b> Once you have returned after the game, please click continue to advance to some short questionaires</p> ",
     choices: ["Continue"],
     data: { screen: "endscreen" },
