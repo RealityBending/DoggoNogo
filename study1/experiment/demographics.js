@@ -100,7 +100,7 @@ var demographics_endscreen = {
     type: jsPsychHtmlButtonResponse,
     stimulus:
         "<h1>Thank you</h1>" +
-        "<p>Click on 'Continue' and <b>wait until your responses have been successfully saved</b> before closing the tab.</p> ",
+        "<p>Please now complete the DogoNogo game, and then return <b> Once you have returned after the game please click continue to advance to some short questionaires</p> ",
     choices: ["Continue"],
     data: { screen: "endscreen" },
 }
@@ -115,13 +115,13 @@ var demographics_multichoice = {
             options: ["Male", "Female", "Other"],
             name: "gender",
         },
-        // {
-        //     prompt: "Are you currently a student?",
-        //     options: ["Yes", "No"],
-        //     name: "student",
-        // },
+         {
+             prompt: "How exhausted are you currently",
+             options: ["Not at all", "Somewhat tired", "Very tired", "Exhausted],
+             name: "exhaustion",
+         },
         {
-            prompt: "What is your highest completed education level?",
+            prompt: "What is your highest level of education? Either that you have obtained or are currently enrolled in",
             options: [
                 "University (doctorate)",
                 "University (master) <sub><sup>or equivalent</sup></sub>",
@@ -131,11 +131,11 @@ var demographics_multichoice = {
             ],
             name: "education",
         },
-        // {
-        //     prompt: "English level",
-        //     options: ["native", "fluent", "intermediate", "beginner"],
-        //     name: "english",
-        // },
+         {
+             prompt: "Have you consumed Caffeine within the last two hours?",
+             options: ["Yes", "No"],
+             name: "caffeine",
+         },
     ],
     data: {
         screen: "demographics_1",
