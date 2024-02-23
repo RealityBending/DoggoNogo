@@ -117,7 +117,7 @@ var demographics_multichoice = {
         },
          {
              prompt: "How exhausted are you currently",
-             options: ["Not at all", "Somewhat tired", "Very tired", "Exhausted],
+             options: ["Not at all", "Somewhat tired", "Very tired", "Exhausted"],
              name: "exhaustion",
          },
         {
