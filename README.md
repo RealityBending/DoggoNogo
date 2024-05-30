@@ -10,7 +10,9 @@ In a world of fast-moving information processing, we seek to create a neuropsych
 
 First version of the game made by [**Auz Moore**](https://github.com/AuzMoore) as part of his bachelor dissertation. The game was built in Unity and administered in-person (N=25), alongside demographic questions.
 
-<video src='https://realitybending.github.io/DoggoNogo/study1/media/dogo_nogo_demo.mkv' width=180/></video>
+![](https://realitybending.github.io/DoggoNogo/study1/media/dogo_bark_pic.png)
+
+<video src='https://realitybending.github.io/DoggoNogo/study1/media/dogo_nogo_demo.mp4' width=180></video>
 
 - [Try the experiment](https://realitybending.github.io/DoggoNogo/study1/experiment/index.html)
 - [Data cleaning](https://realitybending.github.io/DoggoNogo/study1/analysis/1_cleaning.html)
