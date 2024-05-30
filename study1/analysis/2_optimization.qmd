@@ -31,6 +31,8 @@ df <- read.csv("../data/data_game.csv")
 
 ## ISI
 
+### Optimal Bounds
+
 ```{r}
 #| code-fold: false
 
@@ -48,7 +50,7 @@ modelbased::estimate_relation(m, length=20) |>
   coord_cartesian(xlim = c(0, 4)) 
 ```
 
-## Effect on Total Duration
+### Effect on Total Duration
 
 ```{r}
 #| code-fold: false
@@ -69,4 +71,76 @@ dat |>
   ggplot(aes(x=Type, y=Duration)) +
   geom_line(aes(group=1)) +
   theme_minimal()
+```
+
+
+## Number of Trials
+
+```{r}
+#| code-fold: false
+#| fig-width: 10
+#| fig-height: 5
+
+data <- data.frame()
+for(p in unique(df$Participant)) {
+  for(s in unique(df$Session)) {
+    dat <- df[df$Participant == p & df$Session == s, ]
+    
+    var_mean <- c()
+    var_median <- c()
+    var_mode <- c()
+    var_sd <- c()
+    var_mad <- c()
+    var_iqr <- c()
+    for(i in sort(dat$Trial)) {
+      d <- dat[dat$Trial <= i, ]
+      var_mean <- c(var_mean, mean(d$RT))
+      var_median <- c(var_median, median(d$RT))
+      if (i < 10) {
+        var_mode <- c(var_mode, NA)
+      } else {
+        var_mode <- c(var_mode, bayestestR::map_estimate(d$RT)$MAP_Estimate)
+      }
+      var_sd <- c(var_sd, sd(d$RT))
+      var_mad <- c(var_mad, mad(d$RT))
+      var_iqr <- c(var_iqr, IQR(d$RT))
+    }
+    dat$Centrality_RollingMean <- var_mean
+    dat$Centrality_RollingMedian <- var_median
+    dat$Centrality_RollingMode <- var_mode
+    dat$Dispersion_RollingSD <- var_sd
+    dat$Dispersion_RollingMAD <- var_mad
+    dat$Dispersion_RollingIQR <- var_iqr
+    data <- rbind(data, dat)
+  }
+}
+
+
+data <- data |> 
+  select(Participant, Session, Trial, contains("Rolling")) |>
+  pivot_longer(cols = contains("Rolling"), names_to = "Index", values_to = "Value") |>
+  separate(Index, into = c("Type", "Index"), sep = "_") |> 
+  mutate(Index = str_remove_all(Index, "Rolling"))
+
+
+data |>
+  filter(Type == "Centrality") |>
+  mutate(Index = fct_relevel(Index, "Mean", "Median", "Mode")) |>
+  ggplot(aes(x=Trial, y=Value, color=Participant, group=interaction(Session, Participant))) +
+  geom_line() +
+  facet_wrap(~Index) +
+  theme_minimal() +
+  coord_cartesian(ylim = c(0.19, 0.55)) +
+  scale_color_flat_d(guide="none")
+
+data |>
+  filter(Type == "Dispersion") |>
+  mutate(Index = fct_relevel(Index, "SD", "MAD", "IQR")) |>
+  ggplot(aes(x=Trial, y=Value)) +
+  geom_line(aes(color=Participant, group=interaction(Session, Participant))) +
+  geom_smooth(method = 'loess', formula = 'y ~ x', se=FALSE, color="black", linewidth=1) +
+  facet_wrap(~Index) +
+  theme_minimal() +
+  coord_cartesian(ylim = c(0, 0.15)) +
+  scale_color_flat_d(guide="none")
 ```

@@ -29,7 +29,7 @@ dfsub <- read.csv("../data/rawdata_participants.csv")
 df <- read.csv("../data/rawdata_game.csv") 
 ```
 
-The initial sample consisted of `r report::report_participants(df, age="Age", gender="Gender", education="Education")`.
+The initial sample consisted of `r report::report_participants(dfsub, age="Age", gender="Gender", education="Education")`.
 
 
 ```{r}
