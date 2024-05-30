@@ -1,9 +1,9 @@
-# Doggo/Nogo: 
+# Doggo/Nogo: The Neuropsychological Game
 
-*The New Generation Cognitive Control Neuropsychological Game*
+*A Modern Additive Cognitive Control Paradigm*
 
-We are currently in the midst of building up and testing a cognitive control task fit for the modern world.
-In a world of fast-moving information processing, we seek to create a neuropsychological battery test for core psychological functions; reaction time, inhibitory control, processing speed and more.
+We are currently building and testing a next-gen cognitive control task fit for the modern world.
+In a world of fast-moving information processing, we seek to create a neuropsychological battery test for core psychological functions; processing speed, inhibition, flexibility and more.
 
 
 ## Study 1
