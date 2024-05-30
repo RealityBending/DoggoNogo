@@ -1,0 +1,72 @@
+---
+title: "Doggo/Nogo (Study 1) - Task Optimization"
+editor: source
+editor_options: 
+  chunk_output_type: console
+format:
+  html:
+    code-fold: true
+    self-contained: true
+---
+
+## Data Preparation
+
+```{r}
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(easystats)
+library(patchwork)
+library(ggside)
+```
+
+
+```{r}
+#| code-fold: false
+
+dfsub <- read.csv("../data/data_participants.csv") 
+df <- read.csv("../data/data_game.csv") 
+```
+
+## ISI
+
+```{r}
+#| code-fold: false
+
+m <- glmmTMB::glmmTMB(RT ~ poly(ISI, 2) + (poly(ISI, 2)|Participant), 
+                      data = df)
+
+
+modelbased::estimate_relation(m, length=20) |> 
+  ggplot(aes(x = ISI, y = Predicted)) +
+  geom_ribbon(aes(ymin = CI_low, ymax = CI_high), alpha = 0.2) +
+  geom_line(data=modelbased::estimate_relation(m, length=20, include_random=TRUE), aes(color=Participant)) +
+  geom_line(linewidth=1) +
+  geom_hline(yintercept = 0.325, linetype = "dashed") +
+  theme_minimal() +
+  coord_cartesian(xlim = c(0, 4)) 
+```
+
+## Effect on Total Duration
+
+```{r}
+#| code-fold: false
+
+dat <- rbind(
+  data.frame(ISI = seq(1, 4, length.out = 500), Type = "1-4"),
+  data.frame(ISI = seq(1.5, 3.5, length.out = 500), Type = "1.5-3.5"),
+  data.frame(ISI = seq(2, 3.25, length.out = 500), Type = "2-3.25")
+)
+
+
+dat$RT <- insight::get_predicted(m, dat) 
+dat$Duration <- dat$RT + dat$ISI
+
+dat |> 
+  group_by(Type) |>
+  summarise(Duration = sum(Duration)) |> 
+  ggplot(aes(x=Type, y=Duration)) +
+  geom_line(aes(group=1)) +
+  theme_minimal()
+```

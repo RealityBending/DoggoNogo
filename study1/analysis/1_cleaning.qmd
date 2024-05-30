@@ -1,0 +1,193 @@
+---
+title: "Doggo/Nogo (Study 1) - Data Cleaning"
+editor: source
+editor_options: 
+  chunk_output_type: console
+format:
+  html:
+    code-fold: true
+    self-contained: true
+---
+
+## Data Preparation
+
+```{r}
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(easystats)
+library(patchwork)
+library(ggside)
+```
+
+
+```{r}
+#| code-fold: false
+
+dfsub <- read.csv("../data/rawdata_participants.csv") 
+df <- read.csv("../data/rawdata_game.csv") 
+```
+
+The initial sample consisted of `r report::report_participants(df, age="Age", gender="Gender", education="Education")`.
+
+
+```{r}
+# Feedback computation
+newdf <- data.frame()
+for(i in unique(df$Participant)) {
+  for(s in unique(df$Session)) {
+    dat <- df[df$Participant == i & df$Session == s, ]
+    dat$Feedback <- c("Positive", ifelse(dat$RT <= dat$Threshold, "Positive", "Negative")[2:nrow(dat)])
+  
+    n_positive <- c(0)
+    n_negative <- c(0)
+    counter_positive <- 0
+    counter_negative <- 0
+    for(j in 2:nrow(dat)) {
+      prev_feedback <- dat$Feedback[j-1]
+      current_feedback <- dat$Feedback[j]
+  
+      if(prev_feedback == "Positive") {
+        counter_positive <- counter_positive + 1
+      } else {
+        counter_positive <- 0
+      }
+      n_positive <- c(n_positive, counter_positive)
+  
+      if(prev_feedback == "Negative") {
+        counter_negative <- counter_negative + 1
+      } else {
+        counter_negative <- 0
+      }
+      n_negative <- c(n_negative, counter_negative)
+    }
+    dat$Feedback_N_Positive <- n_positive
+    dat$Feedback_N_Negative <- n_negative
+    newdf <- rbind(newdf, dat)
+  }
+}
+df <- newdf
+```
+
+### Recruitment History
+
+```{r}
+#| message: false
+
+# Consecutive count of participants per day (as area)
+dfsub |>
+  mutate(Date = as.Date(Date, format = "%d/%m/%Y")) |> 
+  group_by(Date) |> 
+  summarize(N = n()) |> 
+  ungroup() |>
+  mutate(N = cumsum(N)) |>
+  ggplot(aes(x = Date, y = N)) +
+  geom_area() +
+  scale_y_continuous(expand = c(0, 0)) +
+  labs(
+    title = "Recruitment History",
+    x = "Date",
+    y = "Total Number of Participants"
+  ) +
+  see::theme_modern()
+```
+
+
+## Manipulation Check
+
+### ISI
+
+```{r}
+#| code-fold: false
+
+df |> 
+  ggplot(aes(x=ISI, y=RT)) +
+  geom_point2(alpha=1/10, size=3) +
+  geom_smooth(method = "gam", formula = y ~ s(x, bs = "cs"), se = FALSE, linewidth=2) +
+  scale_y_log10() +
+  theme_minimal() +
+  coord_cartesian(ylim = c(0.1, 1))
+```
+
+### Threshold
+
+```{r}
+#| code-fold: false
+
+cumulative_median <- function(x) {
+  sapply(seq_along(x), function(i) median(x[1:i]))
+}
+
+df |> 
+  arrange(Participant, Session, Trial) |> 
+  group_by(Participant, Session) |> 
+  mutate(CumMedian = cumulative_median(RT)) |> 
+  ungroup() |> 
+  ggplot(aes(x=Threshold, y=CumMedian)) +
+  geom_abline(intercept = 0, slope = 1) +
+  geom_point(aes(color=Participant)) +
+  facet_grid(~Session) +
+  scale_x_log10() +
+  scale_y_log10() 
+```
+
+
+### Feedback
+
+
+
+
+
+```{r}
+#| code-fold: false
+
+df |>
+  filter(RT < 1) |> 
+  mutate(Feedback_N_Positive = ifelse(Feedback_N_Positive > 5, 6, Feedback_N_Positive),
+         Feedback_N_Negative = ifelse(Feedback_N_Negative > 3, 4, Feedback_N_Negative)) |>
+  ggplot(aes(x=Feedback_N_Positive, y=RT)) +
+  geom_smooth(method="lm", formula="y~poly(x, 2)") +
+  ggdist::stat_halfeye(aes(group=interaction(as.factor(Feedback_N_Positive), as.factor(Feedback_N_Negative)),
+                           fill=as.factor(Feedback_N_Negative)), alpha=1/3) +
+  scale_y_log10() +
+  coord_cartesian(ylim = c(0.15, 0.85))
+
+# t.test(RT ~ FeedbackN1, data = filter(!is.na(FeedbackN1)))
+```
+
+
+## Exclusion
+
+### Trials
+
+```{r}
+#| code-fold: false
+
+d <- bayestestR::estimate_density(df$RT, method="KernSmooth")
+dsub <- bayestestR::estimate_density(df, select="RT", at=c("Participant", "Session"), method="KernSmooth")
+
+d |>
+  ggplot(aes(x=x, y=y)) +
+  geom_vline(xintercept = c(0.15, 0.85), linetype = "dashed") +
+  geom_area(fill="grey") +
+  geom_line(data=dsub, aes(color=Participant, linetype=Session), linewidth=1) +
+  coord_cartesian(xlim = c(0, 1)) +
+  theme_minimal()
+
+outliers <- (df$RT > 0.85) | (df$RT < 0.15)
+df <- df[!outliers, ]
+```
+
+Outlier trials were removed from the dataset (`r sum(outliers)`).
+
+
+
+## Save 
+
+```{r}
+#| code-fold: false
+
+write.csv(df, "../data/data_game.csv", row.names = FALSE)
+write.csv(dfsub, "../data/data_participants.csv", row.names = FALSE)
+```
