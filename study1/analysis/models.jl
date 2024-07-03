@@ -7,12 +7,14 @@ using StatsModels
 using StatsPlots
 using GLMakie
 using RCall
+using Downloads
+
 
 # Read data
 # df = CSV.read(download("https://raw.githubusercontent.com/RealityBending/DoggoNogo/main/study1/data/data_game.csv"), DataFrame)
 
 cd(@__DIR__)  # pwd()
-include("fun_data_poly.jl")
+include(Downloads.download("https://raw.githubusercontent.com/RealityBending/scripts/main/data_poly.jl"))
 
 df = CSV.read("../data/data_game.csv", DataFrame)
 
@@ -43,8 +45,19 @@ df = CSV.read("../data/data_game.csv", DataFrame)
         data[i] ~ ExGaussian(drift, σ, τ)
     end
 end
-chain_exgaussian = sample(model_exgaussian(df.RT, min_rt=minimum(df.RT), isi=df.ISI), NUTS(), 500)
-# StatsPlots.plot(chain_exgaussian; size=(600, 2000))
+
+m = model_exgaussian(df.RT, min_rt=minimum(df.RT), isi=df.ISI)
+chain_exgaussian = sample(m, NUTS(), 500)
+pt_exg = pigeons(target=TuringLogPotential(m); record=[Pigeons.traces], n_rounds=8, n_chains=4, seed=123)
+pt_exg = pigeons(target=TuringLogPotential(m);
+    record=[Pigeons.traces],
+    variational=GaussianReference(first_tuning_round=5),
+    n_chains_variational=10,
+    seed=123)
+chain_exgaussian2 = Chains(pt_exg)
+
+StatsPlots.plot(chain_exgaussian; size=(600, 2000))
+StatsPlots.plot(chain_exgaussian2; size=(600, 2000))
 
 # Wald model
 @model function model_wald(data; min_rt=minimum(data.rt), isi=nothing)
@@ -202,8 +215,12 @@ f
 
 
 
+
+
+
+
 # Model Comparison
-pt_exg = pigeons(target=TuringLogPotential(model_exgaussian(df.RT, min_rt=minimum(df.RT), isi=df.ISI)), record=[traces], n_rounds=5)
+pt_exg = pigeons(target=TuringLogPotential(model_exgaussian(df.RT, min_rt=minimum(df.RT), isi=df.ISI)), record=[Pigeons.traces], n_rounds=5)
 pt_wald = pigeons(target=TuringLogPotential(model_wald(df.RT, min_rt=minimum(df.RT), isi=df.ISI)), record=[traces], n_rounds=5)
 pt_lnr = pigeons(target=TuringLogPotential(model_lnr(dat, min_rt=minimum(df.RT), isi=df.ISI)), record=[traces], n_rounds=5)
 pt_lba = pigeons(target=TuringLogPotential(model_lba(dat, min_rt=minimum(df.RT), isi=df.ISI)), record=[traces], n_rounds=4)

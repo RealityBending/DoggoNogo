@@ -151,9 +151,35 @@ df |>
   ggdist::stat_halfeye(aes(group=interaction(as.factor(Feedback_N_Positive), as.factor(Feedback_N_Negative)),
                            fill=as.factor(Feedback_N_Negative)), alpha=1/3) +
   scale_y_log10() +
-  coord_cartesian(ylim = c(0.15, 0.85))
+  coord_cartesian(ylim = c(0.125, 0.875))
 
 # t.test(RT ~ FeedbackN1, data = filter(!is.na(FeedbackN1)))
+```
+
+
+```{r}
+#| code-fold: false
+
+# m <- glmmTMB::glmmTMB(RT ~ Feedback_Negative + (1|Participant), 
+#                       data=df |> 
+#                         mutate(Feedback_Negative = ifelse(Feedback_N_Negative == 1, 
+#                                                           "True",
+#                                                           ifelse(Feedback_N_Positive >= 1,
+#                                                                  "False", 
+#                                                                  NA))) |> 
+#                         filter(!is.na(Feedback_Negative)))
+
+m <- glmmTMB::glmmTMB(
+  RT ~ Feedback_Negative + (Feedback_Negative|Participant), 
+  data=mutate(df, Feedback_Negative = ifelse(Feedback_N_Negative >= 1, "True", "False")))
+
+parameters::parameters(m, effects="fixed")
+
+modelbased::estimate_means(m, at = c("Feedback_Negative")) |>
+  ggplot(aes(x=Feedback_Negative, y=Mean)) +
+  geom_line(aes(group=1)) +
+  geom_pointrange(aes(ymin=CI_low, ymax=CI_high)) +
+  theme_minimal()
 ```
 
 
@@ -169,17 +195,17 @@ dsub <- bayestestR::estimate_density(df, select="RT", at=c("Participant", "Sessi
 
 d |>
   ggplot(aes(x=x, y=y)) +
-  geom_vline(xintercept = c(0.15, 0.85), linetype = "dashed") +
+  geom_vline(xintercept = c(0.125, 0.875), linetype = "dashed") +
   geom_area(fill="grey") +
   geom_line(data=dsub, aes(color=Participant, linetype=Session), linewidth=1) +
   coord_cartesian(xlim = c(0, 1)) +
   theme_minimal()
 
-outliers <- (df$RT > 0.85) | (df$RT < 0.15)
+outliers <- (df$RT > 0.875) | (df$RT < 0.125)
 df <- df[!outliers, ]
 ```
 
-Outlier trials were removed from the dataset (`r sum(outliers)`).
+Outlier trials were removed from the dataset (`r insight::format_percent(sum(outliers) / nrow(df))`).
 
 
 
