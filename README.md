@@ -8,7 +8,7 @@ In a world of fast-moving information processing, we seek to create a neuropsych
 
 ## Study 1
 
-First version of the game made by [**Auz Moore**](https://github.com/AuzMoore) as part of his bachelor's dissertation. The game was built in Unity and administered in-person (N=25), alongside demographic questions.
+First version of the game made by [**Auz Moore**](https://github.com/AuzMoore) as part of their bachelor's dissertation. The game was built in Unity and administered in-person (N=25), alongside demographic questions.
 
 https://github.com/RealityBending/DoggoNogo/assets/8875533/68245fcf-f237-4458-b66f-49b58c1f7ec5
 
