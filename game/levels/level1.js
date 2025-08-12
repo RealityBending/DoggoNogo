@@ -11,14 +11,14 @@ const level1 = {
     soundCorrect: new Audio(),
 
     // Game state management
-    gameState: "playing", // "playing", "done"
+    gameState: "playing", // "playing", "ending"
 
     // Game state variables
     score: 0,
     scoreMax: 500,
     scoreForCorrect: 0, // Will be calculated at the start of the level
     trials: 0,
-    maxTrials: 5,
+    trialsNumber: 5,
     minISI: 1000, // Minimum Inter-Stimulus Interval
     maxISI: 3000, // Maximum Inter-Stimulus Interval
     reactionTimes: [],
@@ -112,7 +112,7 @@ const level1 = {
         this.gameState = "playing"
 
         // Calculate score per correct response based on max score and trials
-        this.scoreForCorrect = this.scoreMax / this.maxTrials
+        this.scoreForCorrect = this.scoreMax / this.trialsNumber
 
         // Start background music
         this.soundBackground.loop = true
@@ -305,7 +305,7 @@ const level1 = {
             const reachedscoreMax = this.score + epsilon >= this.scoreMax
             if (reachedscoreMax) {
                 // Immediately end: stop input and audio, go to score screen now
-                this.gameState = "done"
+                this.gameState = "ending"
                 document.removeEventListener("keydown", this.boundKeyDownHandler)
                 this.soundBackground.pause()
                 this.soundBackground.currentTime = 0
