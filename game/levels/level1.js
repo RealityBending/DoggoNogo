@@ -3,6 +3,12 @@
  *
  * High-level overview
  * -------------------
+ * This script encapsulates the entire logic for a single level in a large `level1` object.
+ * This object is structured into three main parts:
+ *  - `params`: Static configuration like timings, scores, and sizes.
+ *  - `assets`: Holds all `Image` and `Audio` objects.
+ *  - `state`: Dynamic data that changes during gameplay (e.g., score, player position, timers).
+ *
  * Trial lifecycle:
  * 1) After an ISI (random delay), a stimulus appears at a random position and we start timing.
  * 2) Player presses ArrowDown.
@@ -17,6 +23,19 @@
  * - Clamp RT to [minRT, maxRT]; normalize to [0, 1]: nRT = (RT − minRT) / (maxRT − minRT)
  * - Reverse so faster is better: nRT = 1 − nRT
  * - Score = minScore + nRT × (maxScore − minScore)
+ *
+ * Phase Breaks & Evolution Sequence:
+ * ----------------------------------
+ * When a phase's score target is met, the game enters a timed break sequence:
+ * 1. A "tunnel vision" overlay appears, focusing on the player sprite.
+ * 2. After 1 second, the sprite "evolves" (changes image), a sound plays, and sparkles appear.
+ * 3. After another second, a "Press SPACE to continue" prompt appears.
+ * 4. The player can then press SPACE to start the next phase.
+ *
+ * Data Logging:
+ * -------------
+ * On every keypress, a data record is pushed to `level1.state.data`. This array is also
+ * exposed as `window.level1Data` for easy access from the browser console.
  *
  * Adaptive phase targets and perceived agency
  * ------------------------------------------
@@ -83,6 +102,7 @@ const level1 = {
         imgBackground: new Image(),
         soundBackground: new Audio(),
         soundCorrect: new Audio(),
+        soundEvolve: new Audio(),
     },
 
     state: {
@@ -91,6 +111,7 @@ const level1 = {
         score: 0,
         trials: 0, // Trials: number of times the stimulus has been shown (includes slow/fast and timeouts; excludes early presses)
         reactionTimes: [],
+        particles: [],
 
         // Per-keypress data log (one entry per ArrowDown key press). Exposed as window.level1Data.
         data: [],
@@ -139,6 +160,9 @@ const level1 = {
         // Phase progression state (3 phases with 2 breaks)
         phaseIndex: 0, // 0: phase1 active; 1: phase2 active; 2: phase3 active (final)
         inBreak: false, // true when waiting for SPACE between phases
+        breakState: "idle", // "idle" | "started" | "effects" | "ready"
+        breakStartTime: 0,
+        showBreakText: false,
         // Per-phase required targets, computed at the start of each phase based on remaining valid trials
         phaseRequiredScores: [0, 0, 0],
 
@@ -185,6 +209,7 @@ const level1 = {
         this.assets.imgBackground.src = "assets/level1/background.png"
         this.assets.soundBackground.src = "assets/level1/sound_background.mp3"
         this.assets.soundCorrect.src = "assets/level1/sound_correct.mp3"
+        this.assets.soundEvolve.src = "assets/level1/sound_evolve.mp3"
 
         // Create a promise that resolves when all assets are loaded
         const assetRefs = [
@@ -195,6 +220,7 @@ const level1 = {
             this.assets.imgBackground,
             this.assets.soundBackground,
             this.assets.soundCorrect,
+            this.assets.soundEvolve,
         ]
         const promises = assetRefs.map((asset) => {
             return new Promise((resolve, reject) => {
@@ -310,6 +336,9 @@ const level1 = {
             }
         }
 
+        // Update particles
+        this.updateParticles()
+
         // Advance exit animation timing
         if (this.state.stimulus.exiting) {
             const elapsedTime = Date.now() - this.state.stimulus.exitStartTime
@@ -325,9 +354,11 @@ const level1 = {
         this.drawPlayer()
         this.drawStimulus()
         this.drawScoreFeedback()
+        this.drawParticles()
 
-        // If on a break, draw overlay prompt last
+        // If on a break, handle the sequence and draw the overlay
         if (this.state.inBreak) {
+            this.updateBreak()
             this.drawBreakOverlay()
         }
     },
@@ -406,18 +437,52 @@ const level1 = {
     },
 
     /**
+     * Draws particles for effects like sparkles.
+     */
+    drawParticles: function () {
+        this.state.ctx.save()
+        for (const p of this.state.particles) {
+            this.state.ctx.fillStyle = p.color
+            this.state.ctx.globalAlpha = Math.max(0, p.lifespan / 60) // Fade out
+            this.state.ctx.fillRect(p.x, p.y, p.size, p.size)
+        }
+        this.state.ctx.restore()
+    },
+
+    /**
      * Draws a break overlay prompting the player to continue.
      */
     drawBreakOverlay: function () {
         const message = "Press SPACE to continue"
         this.state.ctx.save()
-        // Dim background slightly
-        this.state.ctx.fillStyle = "rgba(0,0,0,0.4)"
+
+        // Create a radial gradient for the tunnel effect, centered on the player
+        const playerCenterX = this.state.player.x + this.state.player.width / 2
+        const playerCenterY = this.state.player.y + this.state.player.height / 2
+        const innerRadius = this.state.player.height * 0.75
+        const outerRadius = innerRadius * 2.5
+
+        const gradient = this.state.ctx.createRadialGradient(
+            playerCenterX,
+            playerCenterY,
+            innerRadius,
+            playerCenterX,
+            playerCenterY,
+            outerRadius
+        )
+        gradient.addColorStop(0, "rgba(0,0,0,0)")
+        gradient.addColorStop(1, "rgba(0,0,0,0.85)")
+
+        this.state.ctx.fillStyle = gradient
         this.state.ctx.fillRect(0, 0, this.state.canvas.width, this.state.canvas.height)
-        this.state.ctx.fillStyle = "white"
-        this.state.ctx.font = `${this.state.canvas.height * 0.053}px Arial` // Font size relative to canvas height
-        this.state.ctx.textAlign = "center"
-        this.state.ctx.fillText(message, this.state.canvas.width / 2, this.state.canvas.height / 2)
+
+        // Draw the text prompt only when the break sequence is ready
+        if (this.state.showBreakText) {
+            this.state.ctx.fillStyle = "white"
+            this.state.ctx.font = `${this.state.canvas.height * 0.053}px Arial` // Font size relative to canvas height
+            this.state.ctx.textAlign = "center"
+            this.state.ctx.fillText(message, this.state.canvas.width / 2, this.state.canvas.height / 3)
+        }
         this.state.ctx.restore()
     },
 
@@ -533,7 +598,7 @@ const level1 = {
             const record = {
                 Level: "level 1",
                 Phase: this.state.phaseIndex + 1,
-                TrialType: outcome.type === "early" ? "Early" : "Valid",
+                TrialType: outcome.type.charAt(0).toUpperCase() + outcome.type.slice(1), // "Fast", "Slow", or "Early"
                 Time: outcome.timestamp,
                 Trial: trialNumber,
                 RT: outcome.type === "early" ? "NA" : outcome.rt,
@@ -625,12 +690,49 @@ const level1 = {
     },
 
     /**
+     * Manages the timed sequence of events during a phase break.
+     */
+    updateBreak: function () {
+        const now = Date.now()
+        const elapsed = now - this.state.breakStartTime
+
+        // State 1: Overlay has just appeared. Wait 1s for effects.
+        if (this.state.breakState === "started" && elapsed > 1000) {
+            // Play evolution sound
+            this.assets.soundEvolve.play()
+
+            // Create sparkles around the player
+            const playerCenterX = this.state.player.x + this.state.player.width / 2
+            const playerCenterY = this.state.player.y + this.state.player.height / 2
+            this.createSparkles(playerCenterX, playerCenterY, 50) // Increased count
+
+            // Update player sprite
+            if (this.state.phaseIndex === 1) {
+                this.assets.imgPlayer = this.assets.imgPlayer2
+            } else if (this.state.phaseIndex === 2) {
+                this.assets.imgPlayer = this.assets.imgPlayer3
+            }
+
+            this.state.breakState = "effects"
+        }
+
+        // State 2: Effects are playing. Wait another 1s for the prompt.
+        if (this.state.breakState === "effects" && elapsed > 2000) {
+            this.state.showBreakText = true
+            this.state.breakState = "ready"
+        }
+    },
+
+    /**
      * Initiates a phase break and waits for SPACE to resume.
      */
     startPhaseBreak: function () {
         // Advance to next phase
         this.state.phaseIndex = Math.min(2, this.state.phaseIndex + 1)
         this.state.inBreak = true
+        this.state.breakState = "started"
+        this.state.breakStartTime = Date.now()
+        this.state.showBreakText = false
 
         // Stop any pending timers and hide stimulus
         if (this.state.pendingStimulusTimeoutId) {
@@ -644,15 +746,13 @@ const level1 = {
         this.state.stimulus.visible = false
         this.state.stimulus.exiting = false
 
-        // Update the phase floor and player sprite
+        // Update the phase floor and score immediately
         if (this.state.phaseIndex === 1) {
             this.state.phaseFloorScore = this.state.phaseRequiredScores[0]
-            this.assets.imgPlayer = this.assets.imgPlayer2
             this.state.score = this.state.phaseFloorScore
             this.state.phaseRequiredScores[1] = this.computePhaseTarget(1)
         } else if (this.state.phaseIndex === 2) {
             this.state.phaseFloorScore = this.state.phaseRequiredScores[0] + this.state.phaseRequiredScores[1]
-            this.assets.imgPlayer = this.assets.imgPlayer3
             this.state.score = this.state.phaseFloorScore
             this.state.phaseRequiredScores[2] = this.computePhaseTarget(2)
         }
@@ -662,8 +762,9 @@ const level1 = {
      * Resumes gameplay from a phase break.
      */
     resumeFromBreak: function () {
-        if (!this.state.inBreak) return
+        if (!this.state.inBreak || this.state.breakState !== "ready") return
         this.state.inBreak = false
+        this.state.breakState = "idle"
         // Start next trial
         this.startNewTrial()
     },
@@ -676,6 +777,43 @@ const level1 = {
         const sorted = [...arr].sort((a, b) => a - b)
         const mid = Math.floor(sorted.length / 2)
         return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+    },
+
+    /**
+     * Creates a burst of particles (sparkles) at a specific location.
+     * @param {number} x - The starting x-coordinate.
+     * @param {number} y - The starting y-coordinate.
+     * @param {number} count - The number of particles to create.
+     */
+    createSparkles: function (x, y, count) {
+        for (let i = 0; i < count; i++) {
+            const angle = Math.random() * Math.PI * 2
+            const speed = Math.random() * 5 + 2 // Increased speed
+            this.state.particles.push({
+                x: x,
+                y: y,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                size: Math.random() * 4 + 2, // Increased size
+                lifespan: Math.random() * 80 + 60, // Increased lifespan
+                color: `hsl(${Math.random() * 60}, 100%, 85%)`, // Brighter yellow/gold
+            })
+        }
+    },
+
+    /**
+     * Updates the state of all active particles.
+     */
+    updateParticles: function () {
+        for (let i = this.state.particles.length - 1; i >= 0; i--) {
+            const p = this.state.particles[i]
+            p.x += p.vx
+            p.y += p.vy
+            p.lifespan--
+            if (p.lifespan <= 0) {
+                this.state.particles.splice(i, 1)
+            }
+        }
     },
 
     /**
@@ -726,7 +864,7 @@ const level1 = {
         // Ignore input unless actively playing
         if (this.state.gameState !== "playing") return
 
-        // During breaks, only SPACE resumes
+        // During breaks, only SPACE resumes (when ready)
         if (this.state.inBreak) {
             const isSpace = e.code === "Space" || e.key === " " || e.key === "Spacebar"
             if (isSpace) this.resumeFromBreak()
