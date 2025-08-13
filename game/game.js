@@ -1,78 +1,36 @@
-/**
- * @file Manages the overall game state, including loading, start screen, game loop, and score screen.
- */
+/* Simple shared UI helpers for Doggo/Nogo */
+;(function (global) {
+    const drawCenteredText = (ctx, canvas, lines = [], fontSize = 30, color = "black") => {
+        ctx.clearRect(0, 0, canvas.width, canvas.height)
+        ctx.textAlign = "center"
+        ctx.fillStyle = color
+        ctx.font = `${fontSize}px Arial`
+        const startY = canvas.height / 2 - ((lines.length - 1) * (fontSize + 10)) / 2
+        lines.forEach((t, i) => ctx.fillText(t, canvas.width / 2, startY + i * (fontSize + 10)))
+    }
 
-const canvas = document.getElementById("gameCanvas")
-const ctx = canvas.getContext("2d")
+    const UI = {
+        showLoading(canvas, text = "Loading...") {
+            const ctx = canvas.getContext("2d")
+            drawCenteredText(ctx, canvas, [text], 30, "black")
+        },
 
-// The current level object. This can be swapped out to change levels.
-let currentLevel = level1
-// ID for the requestAnimationFrame loop, used to cancel it when the game ends.
-let animationFrameId
+        showStartScreen(canvas, text = "Press Down Arrow to Start") {
+            const ctx = canvas.getContext("2d")
+            drawCenteredText(ctx, canvas, [text], 30, "black")
+        },
 
-/**
- * Displays the final score screen with reaction times and the average RT.
- * @param {number[]} scores - An array of reaction times from the completed level.
- */
-function showScoreScreen(scores) {
-    const averageRT = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 0
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
-    ctx.font = "30px Arial"
-    ctx.fillStyle = "black"
-    ctx.textAlign = "center"
-    ctx.fillText("Game Over!", canvas.width / 2, canvas.height / 2 - 50)
-    ctx.fillText(`Average RT: ${averageRT.toFixed(2)}ms`, canvas.width / 2, canvas.height / 2)
-}
-
-/**
- * Displays the start screen, prompting the user to begin the game.
- */
-function showStartScreen() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
-    ctx.font = "30px Arial"
-    ctx.fillStyle = "black"
-    ctx.textAlign = "center"
-    ctx.fillText("Press Down Arrow to Start", canvas.width / 2, canvas.height / 2)
-}
-
-/**
- * The main game loop, which calls the current level's update function on each frame.
- */
-function gameLoop() {
-    currentLevel.update()
-    animationFrameId = requestAnimationFrame(gameLoop)
-}
-
-/**
- * Initializes the game by loading assets, showing the start screen, and starting the game loop.
- */
-function startGame() {
-    // Display a loading message while assets are being loaded.
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
-    ctx.font = "30px Arial"
-    ctx.fillStyle = "black"
-    ctx.textAlign = "center"
-    ctx.fillText("Loading...", canvas.width / 2, canvas.height / 2)
-
-    // Load the current level's assets.
-    currentLevel.load(canvas).then(() => {
-        showStartScreen()
-        // Wait for the player to press the down arrow to start the game.
-        const startHandler = (e) => {
-            if (e.key === "ArrowDown") {
-                document.removeEventListener("keydown", startHandler)
-                // Start the level and provide a callback for when the level ends.
-                currentLevel.start(canvas, (scores) => {
-                    cancelAnimationFrame(animationFrameId)
-                    showScoreScreen(scores)
-                })
-                // Start the game loop.
-                gameLoop()
+        showScoreScreen(canvas, scores = [], options = {}) {
+            const { hint } = options || {}
+            const ctx = canvas.getContext("2d")
+            const avg = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 0
+            const lines = ["Game Over!", `Average RT: ${avg.toFixed(2)} ms`]
+            if (hint) {
+                lines.push("", hint)
             }
-        }
-        document.addEventListener("keydown", startHandler)
-    })
-}
+            drawCenteredText(ctx, canvas, lines, 28, "black")
+        },
+    }
 
-// Start the game when the script is loaded.
-startGame()
+    global.DoggoNogoUI = UI
+})(typeof window !== "undefined" ? window : globalThis)

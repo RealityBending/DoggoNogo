@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <!-- Title shown in tab -->
+        <title>Minimal Example</title>
+
+        <!-- Load JsPsych -->
+        <script src="https://unpkg.com/jspsych"></script>
+        <link href="https://unpkg.com/jspsych/css/jspsych.css" rel="stylesheet" type="text/css" />
+        <!-- core plugins we use -->
+        <script src="https://unpkg.com/@jspsych/plugin-call-function"></script>
+        <script src="https://unpkg.com/@jspsych/plugin-preload"></script>
+        <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response"></script>
+        <!-- Game scripts -->
+        <script src="game/game.js"></script>
+        <script src="game/engine.js"></script>
+        <script src="game/levels/level1.js"></script>
+        <!-- Integration helpers -->
+        <script src="game/jspsych_integration.js"></script>
+    </head>
+
+    <body></body>
+
+    <script>
+        // Initialize experiment =================================================
+        var timeline = []
+
+        var jsPsych = initJsPsych({
+            on_finish: function () {
+                jsPsych.data.displayData("json") // Display data in browser
+            },
+        })
+
+        // Timeline -------------------------------------------------------------------
+        timeline.push(
+            ...DoggoNogo.level1({
+                includePreload: true,
+                assetBasePath: "game/",
+                width: 800,
+                height: 600,
+                trialsNumber: 6,
+            })
+        )
+
+        //  Run the timeline =====================================================
+        jsPsych.run(timeline)
+    </script>
+</html>

@@ -22,9 +22,33 @@
     <body>
         <canvas id="gameCanvas" width="800" height="600"></canvas>
 
+        <!-- STANDALONE VERSION OF THE GAME -->
+
+        <!-- Shared UI helpers -->
+        <script src="game.js"></script>
+        <!-- Central game engine -->
+        <script src="engine.js"></script>
         <!-- Level-specific game logic -->
         <script src="levels/level1.js"></script>
         <!-- Main game manager -->
-        <script src="game.js"></script>
+        <script>
+            // This script is the entry point for the standalone game.
+            // It finds the canvas, loads the necessary scripts, and starts the game engine.
+            const canvas = document.getElementById("gameCanvas")
+
+            // The DoggoNogoEngine, DoggoNogoUI, and level1 objects are expected to be available globally.
+            if (canvas && typeof DoggoNogoEngine !== "undefined" && typeof level1 !== "undefined" && typeof DoggoNogoUI !== "undefined") {
+                DoggoNogoEngine.run(canvas, level1, {
+                    assetBasePath: "", // Use paths relative to this HTML file
+                    onFinish: (state) => {
+                        console.log("Game finished. Final state:", state)
+                        // The score screen is already shown by the engine.
+                        // We could add a "Play Again" button here if desired.
+                    },
+                })
+            } else {
+                console.error("Could not start the game. Ensure canvas, engine, UI, and level scripts are loaded.")
+            }
+        </script>
     </body>
 </html>
