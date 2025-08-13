@@ -1,68 +1,174 @@
 /**
  * @file Contains all the logic for level 1 of the game.
+ *
+ * High-level overview
+ * -------------------
+ * Trial lifecycle:
+ * 1) After an ISI (random delay), a stimulus appears at a random position and we start timing.
+ * 2) Player presses ArrowDown.
+ *    - If pressed before the stimulus appears (or RT < minRT): early → penalty (−minScore).
+ *    - If pressed while visible and RT > Threshold (median RT): slow → +0.
+ *    - If pressed while visible and RT ≤ Threshold: fast → positive points.
+ * 3) Valid RTs (fast or slow within maxRT) update Threshold (running median) and are sent to the score screen.
+ * 4) If no press occurs before maxRT (2 × Threshold at onset), the trial times out with 0 points.
+ * 5) Level ends when the current phase's target is reached for the final phase.
+ *
+ * Fast trial scoring:
+ * - Clamp RT to [minRT, maxRT]; normalize to [0, 1]: nRT = (RT − minRT) / (maxRT − minRT)
+ * - Reverse so faster is better: nRT = 1 − nRT
+ * - Score = minScore + nRT × (maxScore − minScore)
+ *
+ * Adaptive phase targets and perceived agency
+ * ------------------------------------------
+ * We adapt each phase's target score to gently steer the session toward a target
+ * total number of valid trials (trialsNumber) while still letting players feel
+ * their performance matters.
+ *
+ * - At the start of each phase, we compute a phase target based on the number of
+ *   remaining trials shown (trials) and distribute them across the
+ *   remaining phases. We assume ~50% of those trials will be "fast" and worth at
+ *   least minScore points. This produces an estimated target for the phase.
+ * - We also enforce a per-phase minimum derived from minTrialsPerPhase to avoid
+ *   trivially short phases:
+ *     phaseMinTarget = max(minScore, (minTrialsPerPhase / 2) * minScore)
+ *   The final phase target is max(estimatedTarget, phaseMinTarget).
+ *
+ * Player agency vs. consistency:
+ * - Faster RTs earn more points within a trial (up to maxScore), which can let a
+ *   player complete a phase slightly sooner — reinforcing the perception that
+ *   going faster helps. However, because phase targets are recomputed at each
+ *   break using the remaining valid trials, the overall structure gently nudges
+ *   the session toward a consistent total of trials.
+ *
+ * Phase targets and minimum trials
+ * --------------------------------
+ * Each phase enforces a minimum target derived from a configurable
+ * minTrialsPerPhase (default 4):
+ *   phaseMinTarget = max(minScore, (minTrialsPerPhase / 2) * minScore)
+ * Dynamic targets are the max of this minimum and an estimate based on
+ * remaining trials (assuming ~50% fast), preventing too-short phases.
  */
 
 const level1 = {
-    // Image and audio assets for the level
-    imgPlayer: new Image(),
-    imgStimulus: new Image(),
-    imgBackground: new Image(),
-    soundBackground: new Audio(),
-    soundCorrect: new Audio(),
+    params: {
+        // Parameters
+        trialsNumber: 12, // The (theoretical) number of valid trials for the entire level
+        minTrialsPerPhase: 4, // Minimum (theoretical) trials the player should effectively complete per phase
+        minISI: 1000, // Minimum Inter-Stimulus Interval
+        maxISI: 3000, // Maximum Inter-Stimulus Interval
+        minScore: 100, // Minimum score awarded for a fast trial
+        maxScore: 200, // Maximum score awarded for a fast trial
+        // RT thresholds and bounds
+        minRT: 100, // ms; RT < minRT => early press
+        initialMedianRT: 1000, // ms; starting running median of valid RTs
+        gameDifficulty: 0.75, // dimensionless; effective threshold = medianRT / gameDifficulty
 
-    // Game state management
-    gameState: "playing", // "playing", "ending"
-
-    // Game state variables
-    score: 0,
-    scoreMax: 500,
-    scoreForCorrect: 0, // Will be calculated at the start of the level
-    trials: 0,
-    trialsNumber: 5,
-    minISI: 1000, // Minimum Inter-Stimulus Interval
-    maxISI: 3000, // Maximum Inter-Stimulus Interval
-    reactionTimes: [],
-
-    // Player properties
-    player: {
-        x: 0,
-        y: 0,
-        width: 100,
-        height: 100,
-        velocityY: 0,
-        jumping: false,
-        originalY: 0,
+        // Physics properties for the jump
+        gravity: 0.5,
+        maxJumpStrength: -7.5, // Jump strength for a 0ms RT
+        minJumpStrength: -1, // Jump strength for the slowest RT
+        // Animations and size
+        stimulusFallDistance: 0.05, // % of canvas height
+        playerHeight: 0.167, // % of canvas height
+        stimulusHeight: 0.0833, // % of canvas height
     },
 
-    // Physics properties for the jump
-    gravity: 0.5,
-    maxJumpStrength: -7.5, // Jump strength for a 0ms RT
-    minJumpStrength: -1, // Jump strength for the slowest RT
-    maxRTForJumpBonus: 3000, // RT threshold for minimum jump strength
-
-    // Stimulus properties
-    stimulus: {
-        x: 0,
-        y: 0,
-        width: 50,
-        height: 50,
-        visible: false,
-        exiting: false,
-        exitDuration: 200, // ms
-        exitStartTime: 0,
-        exitInitialX: 0,
-        exitInitialY: 0,
-        exitInitialWidth: 0,
-        exitInitialHeight: 0,
+    assets: {
+        // Image and audio assets for the level
+        imgPlayer: new Image(), // current sprite used for drawing
+        imgPlayer1: new Image(), // phase 1 sprite
+        imgPlayer2: new Image(), // phase 2 sprite
+        imgPlayer3: new Image(), // phase 3 sprite
+        imgStimulus: new Image(),
+        imgBackground: new Image(),
+        soundBackground: new Audio(),
+        soundCorrect: new Audio(),
     },
 
-    // Timestamp for reaction time calculation
-    startTime: 0,
+    state: {
+        // Game state management
+        gameState: "playing", // states: "playing" | "done"
+        score: 0,
+        trials: 0, // Trials: number of times the stimulus has been shown (includes slow/fast and timeouts; excludes early presses)
+        reactionTimes: [],
 
-    // Score feedback text
-    scoreText: "",
-    scoreTextVisible: false,
-    scoreTextTimeout: null,
+        // Per-keypress data log (one entry per ArrowDown key press). Exposed as window.level1Data.
+        data: [],
+
+        // Player properties
+        player: {
+            x: 0,
+            y: 0,
+            width: 100, // These will be overwritten by calculated values
+            height: 100,
+            velocityY: 0,
+            jumping: false,
+            originalY: 0,
+        },
+
+        // Stimulus properties
+        stimulus: {
+            x: 0,
+            y: 0,
+            width: 50, // These will be overwritten by calculated values
+            height: 50,
+            visible: false,
+            exiting: false,
+            exitDuration: 200, // ms
+            exitStartTime: 0,
+            exitInitialX: 0,
+            exitInitialY: 0,
+            initialY: 0, // Store the initial Y position for the fall animation
+            exitInitialWidth: 0,
+            exitInitialHeight: 0,
+        },
+
+        // Timestamp for reaction time calculation
+        startTime: 0,
+
+        // Internal timers/handles
+        pendingStimulusTimeoutId: null, // ISI -> stimulus visible timer
+        currentTrialTimeoutId: null, // timeout for max RT
+
+        // Running RTs are stored in reactionTimes; medianRT is computed via simple median on that array
+
+        // Score feedback text
+        scoreText: "",
+        scoreTextVisible: false,
+        scoreTextTimeout: null,
+        // Phase progression state (3 phases with 2 breaks)
+        phaseIndex: 0, // 0: phase1 active; 1: phase2 active; 2: phase3 active (final)
+        inBreak: false, // true when waiting for SPACE between phases
+        // Per-phase required targets, computed at the start of each phase based on remaining valid trials
+        phaseRequiredScores: [0, 0, 0],
+
+        // Reset phase floor
+        phaseFloorScore: 0,
+        canvas: null, // Reference to the canvas element
+        ctx: null, // Reference to the canvas context
+    },
+
+    /**
+     * Initializes dimensions based on canvas size.
+     * @param {HTMLCanvasElement} canvas - The game canvas element.
+     */
+    initializeDimensions: function (canvas) {
+        this.state.canvas = canvas
+        this.state.ctx = canvas.getContext("2d")
+
+        // Player dimensions (based on phase 1 sprite, assuming all player sprites have the same aspect ratio)
+        const playerAspectRatio = this.assets.imgPlayer1.naturalWidth / this.assets.imgPlayer1.naturalHeight
+        this.state.player.height = canvas.height * this.params.playerHeight
+        this.state.player.width = this.state.player.height * playerAspectRatio
+
+        // Stimulus dimensions
+        const stimulusAspectRatio = this.assets.imgStimulus.naturalWidth / this.assets.imgStimulus.naturalHeight
+        this.state.stimulus.height = canvas.height * this.params.stimulusHeight
+        this.state.stimulus.width = this.state.stimulus.height * stimulusAspectRatio
+
+        // Stimulus fall distance in pixels
+        this.params.stimulusFallDistancePx = canvas.height * this.params.stimulusFallDistance
+    },
 
     /**
      * Loads all assets for the level and returns a promise that resolves when loading is complete.
@@ -71,30 +177,45 @@ const level1 = {
      */
     load: function (canvas) {
         // Set asset sources
-        this.imgPlayer.src = "assets/level1/player_1.png"
-        this.imgStimulus.src = "assets/level1/stimulus.png"
-        this.imgBackground.src = "assets/level1/background.png"
-        this.soundBackground.src = "assets/level1/sound_background.mp3"
-        this.soundCorrect.src = "assets/level1/sound_correct.mp3"
-
-        // Set initial player position
-        this.player.x = canvas.width / 2 - 50
-        this.player.y = canvas.height / 2 - 50
-        this.player.originalY = this.player.y
+        // Preload all player sprites for phase-based swapping
+        this.assets.imgPlayer1.src = "assets/level1/player_1.png"
+        this.assets.imgPlayer2.src = "assets/level1/player_2.png"
+        this.assets.imgPlayer3.src = "assets/level1/player_3.png"
+        this.assets.imgStimulus.src = "assets/level1/stimulus.png"
+        this.assets.imgBackground.src = "assets/level1/background.png"
+        this.assets.soundBackground.src = "assets/level1/sound_background.mp3"
+        this.assets.soundCorrect.src = "assets/level1/sound_correct.mp3"
 
         // Create a promise that resolves when all assets are loaded
-        const assets = [this.imgPlayer, this.imgStimulus, this.imgBackground, this.soundBackground, this.soundCorrect]
-        const promises = assets.map((asset) => {
-            return new Promise((resolve) => {
+        const assetRefs = [
+            this.assets.imgPlayer1,
+            this.assets.imgPlayer2,
+            this.assets.imgPlayer3,
+            this.assets.imgStimulus,
+            this.assets.imgBackground,
+            this.assets.soundBackground,
+            this.assets.soundCorrect,
+        ]
+        const promises = assetRefs.map((asset) => {
+            return new Promise((resolve, reject) => {
                 if (asset instanceof HTMLImageElement) {
                     asset.onload = resolve
+                    asset.onerror = reject
                 } else if (asset instanceof HTMLAudioElement) {
                     asset.oncanplaythrough = resolve
+                    asset.onerror = reject
                 }
             })
         })
 
-        return Promise.all(promises)
+        return Promise.all(promises).then(() => {
+            // Now that images are loaded, we can calculate dimensions while preserving aspect ratio
+            this.initializeDimensions(canvas)
+            // Center the player
+            this.state.player.x = canvas.width / 2 - this.state.player.width / 2
+            this.state.player.y = canvas.height / 2 - this.state.player.height / 2
+            this.state.player.originalY = this.state.player.y
+        })
     },
 
     /**
@@ -103,26 +224,58 @@ const level1 = {
      * @param {function} endGameCallback - A callback function to be called when the level is over.
      */
     start: function (canvas, endGameCallback) {
-        this.canvas = canvas
-        this.ctx = canvas.getContext("2d")
+        this.state.canvas = canvas
+        this.state.ctx = canvas.getContext("2d")
         this.endGameCallback = endGameCallback
-        this.score = 0
-        this.trials = 0
-        this.reactionTimes = []
-        this.gameState = "playing"
+        this.state.score = 0
+        this.state.reactionTimes = []
+        this.state.trials = 0
+        // Reset data in-place to preserve any external references
+        if (Array.isArray(this.state.data)) {
+            this.state.data.length = 0
+        } else {
+            this.state.data = []
+        }
+        this.state.gameState = "playing"
+        this.state.phaseIndex = 0
+        this.state.inBreak = false
+        this.state.phaseRequiredScores = [0, 0, 0]
 
-        // Calculate score per correct response based on max score and trials
-        this.scoreForCorrect = this.scoreMax / this.trialsNumber
+        // Reset thresholds
+        this.state.medianRT = this.params.initialMedianRT
+        this.state.maxRT = 2 * this.state.medianRT
+
+        // Reset phase floor
+        this.state.phaseFloorScore = 0
+        // Compute target for phase 0 at level start
+        this.state.phaseRequiredScores[0] = this.computePhaseTarget(0)
+
+        // Clear any leftover timers
+        if (this.state.pendingStimulusTimeoutId) {
+            clearTimeout(this.state.pendingStimulusTimeoutId)
+            this.state.pendingStimulusTimeoutId = null
+        }
+        if (this.state.currentTrialTimeoutId) {
+            clearTimeout(this.state.currentTrialTimeoutId)
+            this.state.currentTrialTimeoutId = null
+        }
 
         // Start background music
-        this.soundBackground.loop = true
-        this.soundBackground.play()
+        this.assets.soundBackground.loop = true
+        this.assets.soundBackground.play()
 
         // Set up keyboard input handler
         this.boundKeyDownHandler = this.handleKeyDown.bind(this)
         document.addEventListener("keydown", this.boundKeyDownHandler)
 
+        // Expose data in the browser console
+        if (typeof window !== "undefined") {
+            window.level1Data = this.state.data
+            window.getLevel1Data = () => this.state.data
+        }
+
         // Start the first trial
+        this.assets.imgPlayer = this.assets.imgPlayer1
         this.startNewTrial()
     },
 
@@ -131,23 +284,37 @@ const level1 = {
      */
     update: function () {
         // Apply gravity to the player if it's jumping
-        if (this.player.jumping) {
-            this.player.velocityY += this.gravity
-            this.player.y += this.player.velocityY
+        if (this.state.player.jumping) {
+            this.state.player.velocityY += this.params.gravity
+            this.state.player.y += this.state.player.velocityY
 
             // Check if the player has landed
-            if (this.player.y >= this.player.originalY) {
-                this.player.y = this.player.originalY
-                this.player.jumping = false
-                this.player.velocityY = 0
+            if (this.state.player.y >= this.state.player.originalY) {
+                this.state.player.y = this.state.player.originalY
+                this.state.player.jumping = false
+                this.state.player.velocityY = 0
             }
         }
 
-        // Advance exit animation timing; no end-game logic here (handled immediately on final score)
-        if (this.stimulus.exiting) {
-            const elapsedTime = Date.now() - this.stimulus.exitStartTime
-            if (elapsedTime >= this.stimulus.exitDuration) {
-                this.stimulus.exiting = false
+        // Animate stimulus falling during the "fast" window
+        if (this.state.stimulus.visible && !this.state.stimulus.exiting) {
+            const elapsedTime = Date.now() - this.state.startTime
+            const threshold = this.getEffectiveThreshold()
+
+            if (elapsedTime < threshold) {
+                const fallProgress = elapsedTime / threshold
+                this.state.stimulus.y = this.state.stimulus.initialY + this.params.stimulusFallDistancePx * fallProgress
+            } else {
+                // Clamp to the final position once the threshold is passed
+                this.state.stimulus.y = this.state.stimulus.initialY + this.params.stimulusFallDistancePx
+            }
+        }
+
+        // Advance exit animation timing
+        if (this.state.stimulus.exiting) {
+            const elapsedTime = Date.now() - this.state.stimulus.exitStartTime
+            if (elapsedTime >= this.state.stimulus.exitDuration) {
+                this.state.stimulus.exiting = false
             }
         }
 
@@ -158,52 +325,70 @@ const level1 = {
         this.drawPlayer()
         this.drawStimulus()
         this.drawScoreFeedback()
+
+        // If on a break, draw overlay prompt last
+        if (this.state.inBreak) {
+            this.drawBreakOverlay()
+        }
     },
 
     /**
      * Draws the background image.
      */
     drawBackground: function () {
-        this.ctx.drawImage(this.imgBackground, 0, 0, this.canvas.width, this.canvas.height)
+        this.state.ctx.drawImage(this.assets.imgBackground, 0, 0, this.state.canvas.width, this.state.canvas.height)
     },
 
     /**
      * Draws the progress bar at the top of the screen.
      */
     drawProgressBar: function () {
-        const barWidth = this.canvas.width / 2
-        const barHeight = 20
-        const x = this.canvas.width / 4
-        const y = 20
-        const progress = this.score / this.scoreMax
+        const barWidth = this.state.canvas.width * 0.5 // 50% of canvas width
+        const barHeight = this.state.canvas.height * 0.033 // 3.3% of canvas height
+        const x = this.state.canvas.width / 2 - barWidth / 2
+        const y = this.state.canvas.height * 0.033 // 3.3% from the top
 
-        // Draw the background of the progress bar
-        this.ctx.fillStyle = "#555"
-        this.ctx.fillRect(x, y, barWidth, barHeight)
+        // Draw background bar
+        this.state.ctx.fillStyle = "#555"
+        this.state.ctx.fillRect(x, y, barWidth, barHeight)
 
-        // Draw the filled portion of the progress bar
-        this.ctx.fillStyle = "#2ecc71"
-        this.ctx.fillRect(x, y, barWidth * progress, barHeight)
+        // Segment setup (3 segments for 3 phases)
+        const segWidth = barWidth / 3
+        const phaseTargets = this.getPhaseTargets()
+        const segScores = [phaseTargets[0], phaseTargets[1], phaseTargets[2]]
+        const colors = ["#4CAF50", "#00BCD4", "#2196F3"] // green, cyan, blue
 
-        // Draw the border of the progress bar
-        this.ctx.strokeStyle = "#000"
-        this.ctx.strokeRect(x, y, barWidth, barHeight)
+        // Draw each segment according to score progress
+        for (let i = 0; i < 3; i++) {
+            const segStartScore = i === 0 ? 0 : segScores.slice(0, i).reduce((a, b) => a + b, 0)
+            const segEndScore = segStartScore + segScores[i]
+            const raw = (this.state.score - segStartScore) / (segEndScore - segStartScore)
+            const frac = Math.min(1, Math.max(0, raw))
+            if (frac <= 0) continue
+            this.state.ctx.fillStyle = colors[i]
+            this.state.ctx.fillRect(x + i * segWidth, y, segWidth * frac, barHeight)
+        }
+
+        // Border
+        this.state.ctx.strokeStyle = "#000"
+        this.state.ctx.strokeRect(x, y, barWidth, barHeight)
     },
 
     /**
      * Draws the score feedback text when a correct response is made.
      */
     drawScoreFeedback: function () {
-        if (this.scoreTextVisible) {
-            const barX = this.canvas.width / 4
-            const barY = 20
-            const barWidth = this.canvas.width / 2
+        if (this.state.scoreTextVisible) {
+            const barWidth = this.state.canvas.width * 0.5
+            const barHeight = this.state.canvas.height * 0.033
+            const barX = this.state.canvas.width / 2 - barWidth / 2
+            const barY = this.state.canvas.height * 0.033
             const textX = barX + barWidth + 10 // Position text to the right of the bar
-            const textY = barY + 15
+            const textY = barY + barHeight * 0.75
 
-            this.ctx.fillStyle = "white"
-            this.ctx.font = "20px Arial"
-            this.ctx.fillText(this.scoreText, textX, textY)
+            this.state.ctx.fillStyle = "white"
+            this.state.ctx.font = `${this.state.canvas.height * 0.03}px Arial` // Font size relative to canvas height
+            this.state.ctx.fillText(this.state.scoreText, textX, textY)
         }
     },
 
@@ -211,33 +396,61 @@ const level1 = {
      * Draws the player sprite.
      */
     drawPlayer: function () {
-        this.ctx.drawImage(this.imgPlayer, this.player.x, this.player.y, this.player.width, this.player.height)
+        this.state.ctx.drawImage(
+            this.assets.imgPlayer,
+            this.state.player.x,
+            this.state.player.y,
+            this.state.player.width,
+            this.state.player.height
+        )
+    },
+
+    /**
+     * Draws a break overlay prompting the player to continue.
+     */
+    drawBreakOverlay: function () {
+        const message = "Press SPACE to continue"
+        this.state.ctx.save()
+        // Dim background slightly
+        this.state.ctx.fillStyle = "rgba(0,0,0,0.4)"
+        this.state.ctx.fillRect(0, 0, this.state.canvas.width, this.state.canvas.height)
+        this.state.ctx.fillStyle = "white"
+        this.state.ctx.font = `${this.state.canvas.height * 0.053}px Arial` // Font size relative to canvas height
+        this.state.ctx.textAlign = "center"
+        this.state.ctx.fillText(message, this.state.canvas.width / 2, this.state.canvas.height / 2)
+        this.state.ctx.restore()
     },
 
     /**
      * Draws the stimulus if it's visible or animating.
      */
     drawStimulus: function () {
-        if (this.stimulus.exiting) {
-            const elapsedTime = Date.now() - this.stimulus.exitStartTime
-            const progress = Math.min(elapsedTime / this.stimulus.exitDuration, 1)
+        if (this.state.stimulus.exiting) {
+            const elapsedTime = Date.now() - this.state.stimulus.exitStartTime
+            const progress = Math.min(elapsedTime / this.state.stimulus.exitDuration, 1)
 
-            const playerCenterX = this.player.x + this.player.width / 2
-            const playerCenterY = this.player.y + this.player.height / 2
+            const playerCenterX = this.state.player.x + this.state.player.width / 2
+            const playerCenterY = this.state.player.y + this.state.player.height / 2
 
             // Interpolate position towards the player's center
-            const targetX = playerCenterX - (this.stimulus.exitInitialWidth * (1 - progress)) / 2
-            const targetY = playerCenterY - (this.stimulus.exitInitialHeight * (1 - progress)) / 2
-            const currentX = this.stimulus.exitInitialX + (targetX - this.stimulus.exitInitialX) * progress
-            const currentY = this.stimulus.exitInitialY + (targetY - this.stimulus.exitInitialY) * progress
+            const targetX = playerCenterX - (this.state.stimulus.exitInitialWidth * (1 - progress)) / 2
+            const targetY = playerCenterY - (this.state.stimulus.exitInitialHeight * (1 - progress)) / 2
+            const currentX = this.state.stimulus.exitInitialX + (targetX - this.state.stimulus.exitInitialX) * progress
+            const currentY = this.state.stimulus.exitInitialY + (targetY - this.state.stimulus.exitInitialY) * progress
 
             // Interpolate size
-            const currentWidth = this.stimulus.exitInitialWidth * (1 - progress)
-            const currentHeight = this.stimulus.exitInitialHeight * (1 - progress)
+            const currentWidth = this.state.stimulus.exitInitialWidth * (1 - progress)
+            const currentHeight = this.state.stimulus.exitInitialHeight * (1 - progress)
 
-            this.ctx.drawImage(this.imgStimulus, currentX, currentY, currentWidth, currentHeight)
-        } else if (this.stimulus.visible) {
-            this.ctx.drawImage(this.imgStimulus, this.stimulus.x, this.stimulus.y, this.stimulus.width, this.stimulus.height)
+            this.state.ctx.drawImage(this.assets.imgStimulus, currentX, currentY, currentWidth, currentHeight)
+        } else if (this.state.stimulus.visible) {
+            this.state.ctx.drawImage(
+                this.assets.imgStimulus,
+                this.state.stimulus.x,
+                this.state.stimulus.y,
+                this.state.stimulus.width,
+                this.state.stimulus.height
+            )
         }
     },
 
@@ -245,23 +458,245 @@ const level1 = {
      * Clears the entire canvas.
      */
     clearCanvas: function () {
-        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
+        this.state.ctx.clearRect(0, 0, this.state.canvas.width, this.state.canvas.height)
     },
 
     /**
      * Starts a new trial by scheduling the next stimulus appearance.
      */
     startNewTrial: function () {
-        const delay = Math.random() * (this.maxISI - this.minISI) + this.minISI
-        setTimeout(() => {
-            this.stimulus.width = 50 // Reset size
-            this.stimulus.height = 50
-            this.stimulus.x = Math.random() * (this.canvas.width - this.stimulus.width)
-            this.stimulus.y = Math.random() * (this.canvas.height - this.stimulus.height)
-            this.stimulus.visible = true
-            this.stimulus.exiting = false
-            this.startTime = Date.now()
+        const delay = Math.random() * (this.params.maxISI - this.params.minISI) + this.params.minISI
+        if (this.state.pendingStimulusTimeoutId) {
+            clearTimeout(this.state.pendingStimulusTimeoutId)
+            this.state.pendingStimulusTimeoutId = null
+        }
+        this.state.pendingStimulusTimeoutId = setTimeout(() => {
+            this.state.pendingStimulusTimeoutId = null
+            // Prepare stimulus
+            this.state.stimulus.x = Math.random() * (this.state.canvas.width - this.state.stimulus.width)
+            const maxY = this.state.canvas.height - this.state.stimulus.height - this.params.stimulusFallDistancePx
+            this.state.stimulus.y = Math.random() * maxY
+            this.state.stimulus.initialY = this.state.stimulus.y // Store the initial Y for the fall animation
+            this.state.stimulus.visible = true
+            this.state.stimulus.exiting = false
+            this.state.startTime = Date.now()
+            // Count this as a presented trial
+            this.state.trials++
+
+            // Set per-trial max RT
+            this.state.maxRT = 2 * this.state.medianRT
+            if (this.state.currentTrialTimeoutId) {
+                clearTimeout(this.state.currentTrialTimeoutId)
+            }
+            this.state.currentTrialTimeoutId = setTimeout(() => {
+                // Timeout: slow (0 points)
+                this.state.currentTrialTimeoutId = null
+                if (this.state.gameState !== "playing") return
+                if (this.state.stimulus.visible) {
+                    // Hide stimulus and play exit animation
+                    this.state.stimulus.visible = false
+                    this.state.stimulus.exiting = true
+                    this.state.stimulus.exitStartTime = Date.now()
+                    this.state.stimulus.exitInitialX = this.state.stimulus.x
+                    this.state.stimulus.exitInitialY = this.state.stimulus.y
+                    this.state.stimulus.exitInitialWidth = this.state.stimulus.width
+                    this.state.stimulus.exitInitialHeight = this.state.stimulus.height
+                }
+                this.finishTrial({ type: "slow", points: 0, includeInMedian: false })
+            }, this.state.maxRT)
         }, delay)
+    },
+
+    /**
+     * Finishes a trial: updates score, counters, checks end, or schedules next trial.
+     * @param {{ type: 'fast'|'slow'|'early', points: number, rt?: number, includeInMedian?: boolean }} outcome
+     */
+    finishTrial: function (outcome) {
+        // Update score and show feedback
+        this.state.score += outcome.points
+        // Clamp score to the current phase floor
+        if (typeof this.state.phaseFloorScore === "number") {
+            this.state.score = Math.max(this.state.score, this.state.phaseFloorScore)
+        }
+        const sign = outcome.points > 0 ? "+" : ""
+        this.showScoreFeedback(`${sign}${Math.round(outcome.points)}`)
+
+        // Update RT stats if needed
+        if (outcome.includeInMedian && typeof outcome.rt === "number") {
+            this.state.reactionTimes.push(outcome.rt)
+            this.state.medianRT = this.computeMedian(this.state.reactionTimes)
+        }
+
+        // Log keypress data
+        if (outcome.timestamp) {
+            const trialNumber = this.state.trials
+            const record = {
+                Level: "level 1",
+                Phase: this.state.phaseIndex + 1,
+                TrialType: outcome.type === "early" ? "Early" : "Valid",
+                Time: outcome.timestamp,
+                Trial: trialNumber,
+                RT: outcome.type === "early" ? "NA" : outcome.rt,
+                Threshold: typeof outcome.thresholdUsed === "number" ? outcome.thresholdUsed : this.getEffectiveThreshold(),
+                Score: this.state.score,
+                ScoreChange: outcome.points,
+            }
+            this.state.data.push(record)
+        }
+
+        // End of phase or level
+        const epsilon = 1e-6
+        const currentPhaseTarget = this.ensurePhaseTarget()
+        if (this.state.score + epsilon >= this.state.phaseFloorScore + currentPhaseTarget) {
+            if (this.state.phaseIndex < 2) {
+                this.startPhaseBreak()
+                return
+            } else {
+                // Phase 3 completed
+                this.endLevel()
+                return
+            }
+        }
+
+        // Otherwise, start the next trial
+        this.startNewTrial()
+    },
+
+    /**
+     * Compute the total score required to finish the level.
+     */
+    getTotalScoreRequired: function () {
+        // Sum the per-phase targets (using computed ones for past/current phases and estimates for future phases)
+        const targets = this.getPhaseTargets()
+        const total = targets.reduce((a, b) => a + b, 0)
+        return Math.max(1, total)
+    },
+
+    /**
+     * Returns the array of 3 phase targets. For phases not yet started, returns an estimate
+     * based on remaining trials at the current moment.
+     */
+    getPhaseTargets: function () {
+        const targets = [0, 0, 0]
+        for (let i = 0; i < 3; i++) {
+            if (this.state.phaseRequiredScores[i] && this.state.phaseRequiredScores[i] > 0) {
+                targets[i] = this.state.phaseRequiredScores[i]
+            } else {
+                targets[i] = this.computePhaseTarget(i)
+            }
+        }
+        return targets
+    },
+
+    /**
+     * Compute or return the target score for the current phase; computes and stores if missing.
+     */
+    ensurePhaseTarget: function () {
+        if (!this.state.phaseRequiredScores[this.state.phaseIndex] || this.state.phaseRequiredScores[this.state.phaseIndex] <= 0) {
+            this.state.phaseRequiredScores[this.state.phaseIndex] = this.computePhaseTarget(this.state.phaseIndex)
+        }
+        return this.state.phaseRequiredScores[this.state.phaseIndex]
+    },
+
+    /**
+     * Compute the required score for a given phase index based on remaining trials and an assumed
+     * fast-rate. Conservative estimate: assume 50% of the phase's trials will be fast, each worth at least minScore.
+     * Enforces a minimum per-phase target = max(minScore, (minTrialsPerPhase/2) * minScore).
+     */
+    computePhaseTarget: function (phaseIdx) {
+        const phasesRemaining = Math.max(1, 3 - phaseIdx)
+        const trialsLeft = Math.max(0, this.params.trialsNumber - this.state.trials)
+        const trialsThisPhase = Math.ceil(trialsLeft / phasesRemaining)
+        const assumedFastRate = 0.5
+        const expectedFast = Math.floor(trialsThisPhase * assumedFastRate)
+        const estimatedTarget = expectedFast * this.params.minScore
+        // Minimum per-phase target
+        const minTargetByTrials = (this.params.minTrialsPerPhase / 2) * this.params.minScore
+        return Math.max(this.params.minScore, minTargetByTrials, estimatedTarget)
+    },
+
+    /**
+     * Returns the effective threshold used for fast/slow classification.
+     * Threshold = medianRT / gameDifficulty
+     */
+    getEffectiveThreshold: function () {
+        const divisor = this.params.gameDifficulty && this.params.gameDifficulty > 0 ? this.params.gameDifficulty : 1
+        return this.state.medianRT / divisor
+    },
+
+    /**
+     * Initiates a phase break and waits for SPACE to resume.
+     */
+    startPhaseBreak: function () {
+        // Advance to next phase
+        this.state.phaseIndex = Math.min(2, this.state.phaseIndex + 1)
+        this.state.inBreak = true
+
+        // Stop any pending timers and hide stimulus
+        if (this.state.pendingStimulusTimeoutId) {
+            clearTimeout(this.state.pendingStimulusTimeoutId)
+            this.state.pendingStimulusTimeoutId = null
+        }
+        if (this.state.currentTrialTimeoutId) {
+            clearTimeout(this.state.currentTrialTimeoutId)
+            this.state.currentTrialTimeoutId = null
+        }
+        this.state.stimulus.visible = false
+        this.state.stimulus.exiting = false
+
+        // Update the phase floor and player sprite
+        if (this.state.phaseIndex === 1) {
+            this.state.phaseFloorScore = this.state.phaseRequiredScores[0]
+            this.assets.imgPlayer = this.assets.imgPlayer2
+            this.state.score = this.state.phaseFloorScore
+            this.state.phaseRequiredScores[1] = this.computePhaseTarget(1)
+        } else if (this.state.phaseIndex === 2) {
+            this.state.phaseFloorScore = this.state.phaseRequiredScores[0] + this.state.phaseRequiredScores[1]
+            this.assets.imgPlayer = this.assets.imgPlayer3
+            this.state.score = this.state.phaseFloorScore
+            this.state.phaseRequiredScores[2] = this.computePhaseTarget(2)
+        }
+    },
+
+    /**
+     * Resumes gameplay from a phase break.
+     */
+    resumeFromBreak: function () {
+        if (!this.state.inBreak) return
+        this.state.inBreak = false
+        // Start next trial
+        this.startNewTrial()
+    },
+
+    /**
+     * Compute median via sort (O(n log n) per update). Simpler and sufficient for small n.
+     */
+    computeMedian: function (arr) {
+        if (!arr || arr.length === 0) return this.state.medianRT
+        const sorted = [...arr].sort((a, b) => a - b)
+        const mid = Math.floor(sorted.length / 2)
+        return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+    },
+
+    /**
+     * Cleanly ends the level, removing listeners and timers and calling the end callback.
+     */
+    endLevel: function () {
+        this.state.gameState = "done"
+        document.removeEventListener("keydown", this.boundKeyDownHandler)
+        this.assets.soundBackground.pause()
+        this.assets.soundBackground.currentTime = 0
+        // Clear timers
+        if (this.state.pendingStimulusTimeoutId) {
+            clearTimeout(this.state.pendingStimulusTimeoutId)
+            this.state.pendingStimulusTimeoutId = null
+        }
+        if (this.state.currentTrialTimeoutId) {
+            clearTimeout(this.state.currentTrialTimeoutId)
+            this.state.currentTrialTimeoutId = null
+        }
+        // Send valid RTs to the score screen
+        this.endGameCallback(this.state.reactionTimes)
     },
 
     /**
@@ -269,18 +704,18 @@ const level1 = {
      * @param {number} reactionTime - The player's reaction time in milliseconds.
      */
     jump: function (reactionTime) {
-        if (this.player.jumping) return
-        this.player.jumping = true
+        if (this.state.player.jumping) return
+        this.state.player.jumping = true
 
-        // Clamp the reaction time to the max RT for bonus
-        const effectiveRT = Math.min(reactionTime, this.maxRTForJumpBonus)
+        // Clamp the reaction time
+        const effectiveRT = Math.min(reactionTime, this.state.maxRT)
 
-        // Linearly interpolate jump strength based on reaction time
-        const jumpRange = this.maxJumpStrength - this.minJumpStrength
-        const rtRatio = 1 - effectiveRT / this.maxRTForJumpBonus
-        const jumpPower = this.minJumpStrength + jumpRange * rtRatio
+        // Linearly interpolate jump strength
+        const jumpRange = this.params.maxJumpStrength - this.params.minJumpStrength
+        const rtRatio = 1 - effectiveRT / this.state.maxRT
+        const jumpPower = this.params.minJumpStrength + jumpRange * rtRatio
 
-        this.player.velocityY = jumpPower
+        this.state.player.velocityY = jumpPower
     },
 
     /**
@@ -289,40 +724,91 @@ const level1 = {
      */
     handleKeyDown: function (e) {
         // Ignore input unless actively playing
-        if (this.gameState !== "playing") return
-        if (e.key === "ArrowDown" && this.stimulus.visible && !this.stimulus.exiting) {
-            const reactionTime = Date.now() - this.startTime
-            this.reactionTimes.push(reactionTime)
-            this.score += this.scoreForCorrect
-            this.trials++
+        if (this.state.gameState !== "playing") return
 
-            this.showScoreFeedback(`+${Math.round(this.scoreForCorrect)}`)
-            this.soundCorrect.play()
-            this.jump(reactionTime)
+        // During breaks, only SPACE resumes
+        if (this.state.inBreak) {
+            const isSpace = e.code === "Space" || e.key === " " || e.key === "Spacebar"
+            if (isSpace) this.resumeFromBreak()
+            return
+        }
 
-            // Check if this was the final response (rely on score only)
-            const epsilon = 1e-6
-            const reachedscoreMax = this.score + epsilon >= this.scoreMax
-            if (reachedscoreMax) {
-                // Immediately end: stop input and audio, go to score screen now
-                this.gameState = "ending"
-                document.removeEventListener("keydown", this.boundKeyDownHandler)
-                this.soundBackground.pause()
-                this.soundBackground.currentTime = 0
-                this.endGameCallback(this.reactionTimes)
+        if (e.key !== "ArrowDown") return
+
+        // Early press before stimulus
+        if (!this.state.stimulus.visible && !this.state.stimulus.exiting) {
+            // Cancel pending stimulus
+            if (this.state.pendingStimulusTimeoutId) {
+                clearTimeout(this.state.pendingStimulusTimeoutId)
+                this.state.pendingStimulusTimeoutId = null
+            }
+            if (this.state.currentTrialTimeoutId) {
+                clearTimeout(this.state.currentTrialTimeoutId)
+                this.state.currentTrialTimeoutId = null
+            }
+            // Penalty for early press
+            const nowISO = new Date().toISOString()
+            const thresholdUsed = Math.max(this.params.minRT, this.getEffectiveThreshold())
+            this.finishTrial({ type: "early", points: -this.params.minScore, includeInMedian: false, timestamp: nowISO, thresholdUsed })
+            return
+        }
+
+        // Valid press while stimulus is visible
+        if (this.state.stimulus.visible && !this.state.stimulus.exiting) {
+            const reactionTime = Date.now() - this.state.startTime
+
+            // Stop the per-trial timeout
+            if (this.state.currentTrialTimeoutId) {
+                clearTimeout(this.state.currentTrialTimeoutId)
+                this.state.currentTrialTimeoutId = null
+            }
+
+            // Prepare exit animation
+            this.state.stimulus.visible = false
+            this.state.stimulus.exiting = true
+            this.state.stimulus.exitStartTime = Date.now()
+            this.state.stimulus.exitInitialX = this.state.stimulus.x
+            this.state.stimulus.exitInitialY = this.state.stimulus.y
+            this.state.stimulus.exitInitialWidth = this.state.stimulus.width
+            this.state.stimulus.exitInitialHeight = this.state.stimulus.height
+
+            // Classify and score
+            // Early (too fast)
+            if (reactionTime < this.params.minRT) {
+                this.finishTrial({ type: "early", points: -this.params.minScore, includeInMedian: false })
                 return
             }
 
-            // Not final: play exit animation and schedule next trial (ISI starts now)
-            this.stimulus.visible = false
-            this.stimulus.exiting = true
-            this.stimulus.exitStartTime = Date.now()
-            this.stimulus.exitInitialX = this.stimulus.x
-            this.stimulus.exitInitialY = this.stimulus.y
-            this.stimulus.exitInitialWidth = this.stimulus.width
-            this.stimulus.exitInitialHeight = this.stimulus.height
+            // Determine threshold for fast/slow
+            const threshold = Math.max(this.params.minRT, this.getEffectiveThreshold())
+            const trialMaxRT = this.state.maxRT || 2 * Math.max(this.state.medianRT, this.params.minRT)
 
-            this.startNewTrial()
+            if (reactionTime > threshold) {
+                // Slow trial
+                const include = reactionTime <= trialMaxRT
+                const nowISO = new Date().toISOString()
+                this.finishTrial({
+                    type: "slow",
+                    points: 0,
+                    rt: reactionTime,
+                    includeInMedian: include,
+                    timestamp: nowISO,
+                    thresholdUsed: threshold,
+                })
+                return
+            }
+
+            // Fast trial
+            const clampedRT = Math.max(this.params.minRT, Math.min(reactionTime, trialMaxRT))
+            const nRT = 1 - (clampedRT - this.params.minRT) / Math.max(1, trialMaxRT - this.params.minRT)
+            const points = this.params.minScore + nRT * (this.params.maxScore - this.params.minScore)
+
+            // Feedback and jump/sound
+            this.assets.soundCorrect.play()
+            this.jump(reactionTime)
+
+            const nowISO = new Date().toISOString()
+            this.finishTrial({ type: "fast", points, rt: reactionTime, includeInMedian: true, timestamp: nowISO, thresholdUsed: threshold })
         }
     },
 
@@ -331,17 +817,17 @@ const level1 = {
      * @param {string} text - The text to display.
      */
     showScoreFeedback: function (text) {
-        this.scoreText = text
-        this.scoreTextVisible = true
+        this.state.scoreText = text
+        this.state.scoreTextVisible = true
 
         // Clear any existing timeout
-        if (this.scoreTextTimeout) {
-            clearTimeout(this.scoreTextTimeout)
+        if (this.state.scoreTextTimeout) {
+            clearTimeout(this.state.scoreTextTimeout)
         }
 
-        // Set a timeout to hide the text after 1 second
-        this.scoreTextTimeout = setTimeout(() => {
-            this.scoreTextVisible = false
+        // Set a timeout to hide the text
+        this.state.scoreTextTimeout = setTimeout(() => {
+            this.state.scoreTextVisible = false
         }, 1000)
     },
 }
