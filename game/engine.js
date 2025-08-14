@@ -56,21 +56,23 @@
                     await IntroRunner.run(this.canvas, introSequence, mergedAssets)
                 }
 
-                // 2. Show start screen and wait for user to start
-                if (typeof DoggoNogoUI !== "undefined" && DoggoNogoUI.showStartScreen) {
+                // 2. Show start screen (prefer level-specific override) and wait for user to start
+                if (this.level.showStartScreen) {
+                    this.level.showStartScreen(this.canvas)
+                } else if (typeof DoggoNogoUI !== "undefined" && DoggoNogoUI.showStartScreen) {
                     DoggoNogoUI.showStartScreen(this.canvas, {
                         backgroundImg: this.level.assets.imgBackground,
                         stimulusImg: this.level.assets.imgStimulus,
                     })
-                    // Start background music here so it plays during instruction screen
-                    const bg = this.level.assets.soundBackground
-                    if (bg) {
-                        try {
-                            bg.loop = true
-                            if (bg.paused) bg.play()
-                        } catch (e) {
-                            console.warn("Background music failed to start early", e)
-                        }
+                }
+                // Start background music here so it plays during instruction screen
+                const bg = this.level.assets.soundBackground
+                if (bg) {
+                    try {
+                        bg.loop = true
+                        if (bg.paused) bg.play()
+                    } catch (e) {
+                        console.warn("Background music failed to start early", e)
                     }
                 }
 

@@ -46,7 +46,7 @@
 
             ctx.font = `${scaleFontPx(28, canvas)}px Arial`
             const instructions = [
-                "Doggo is in need of urgent care and feeding.",
+                "Doggo is in need of urgent care and feeding!",
                 "",
                 "Help him get as many bones as possible by pressing",
                 "the down arrow as fast as possible.",

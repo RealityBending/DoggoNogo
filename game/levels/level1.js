@@ -76,8 +76,13 @@
  */
 
 const level1 = {
-    // High-resolution timestamp in milliseconds (float). Falls back to Date.now().
+    // Use jsPsych's time function for consistency
     now: function () {
+        // jsPsych is loaded globally in the HTML
+        if (typeof jsPsych !== "undefined") {
+            return jsPsych.getTotalTime()
+        }
+        // Fallback for standalone testing
         if (typeof performance !== "undefined" && typeof performance.now === "function") {
             return performance.now()
         }
@@ -312,6 +317,12 @@ const level1 = {
             this.state.player.originalY = this.state.player.y
         })
     },
+
+    /**
+     * Level-specific instructions / start screen. Allows future levels to diverge without editing shared UI.
+     */
+    // DEPRECATED: This is now handled by the engine calling the shared DoggoNogoUI.showStartScreen
+    // showStartScreen: function (canvas) { ... },
 
     /**
      * Starts the level, initializes game state, and sets up event listeners.
@@ -748,20 +759,39 @@ const level1 = {
      * @param {{ type: 'fast'|'slow'|'early'|'timeout', points: number, rt?: number, includeInMedian?: boolean, stimulusX?: number, stimulusY?: number }} outcome
      */
     finishTrial: function (outcome) {
-        // Update score and show feedback
+        // Update score and show feedback text
         this.state.score += outcome.points
-        // Clamp score to the current phase floor
         if (typeof this.state.phaseFloorScore === "number") {
             this.state.score = Math.max(this.state.score, this.state.phaseFloorScore)
         }
         const sign = outcome.points > 0 ? "+" : ""
         this.showScoreFeedback(`${sign}${Math.round(outcome.points)}`)
 
-        // Bubble position - centered above player
+        // Handle sounds and feedback bubbles
+        this._handleTrialOutcomeFeedback(outcome)
+
+        // Update running median RT
+        this._updateReactionTimeStats(outcome)
+
+        // Log the data for this trial
+        this._logTrialData(outcome)
+
+        // Update last trial type for streak tracking
+        this.state.lastTrialType = outcome.type
+
+        // Check if the phase or level has ended, otherwise start a new trial
+        this._checkForPhaseOrLevelEnd()
+    },
+
+    /**
+     * Shows feedback bubbles and plays sounds based on the trial outcome.
+     * @param {object} outcome - The outcome object from finishTrial.
+     * @private
+     */
+    _handleTrialOutcomeFeedback: function (outcome) {
         const bubbleX = this.state.player.x + this.state.player.width / 2
         const bubbleY = this.state.player.y
 
-        // Show feedback bubble for slow or timeout trials
         if (outcome.type === "slow") {
             this.assets.soundSlow.play()
             this.showFeedbackBubble("slow", bubbleX, bubbleY)
@@ -770,44 +800,45 @@ const level1 = {
             this.showFeedbackBubble("late", bubbleX, bubbleY)
             this.state.lastFastFeedback = 0 // Reset fast streak
         } else if (outcome.type === "fast") {
+            // Logic for fast streak feedback
             if (this.state.lastTrialType === "fast") {
-                if (this.state.lastFastFeedback === 1) {
-                    this.showFeedbackBubble("fast2", bubbleX, bubbleY)
-                    this.state.lastFastFeedback = 2
-                } else if (this.state.lastFastFeedback === 2) {
-                    this.showFeedbackBubble("fast3", bubbleX, bubbleY)
-                    this.state.lastFastFeedback = 3
-                } else {
-                    // Includes lastFastFeedback === 3, resetting the cycle
-                    this.showFeedbackBubble("fast1", bubbleX, bubbleY)
-                    this.state.lastFastFeedback = 1
-                }
+                this.state.lastFastFeedback = (this.state.lastFastFeedback % 3) + 1
             } else {
-                // Previous trial was not fast
-                this.showFeedbackBubble("fast1", bubbleX, bubbleY)
                 this.state.lastFastFeedback = 1
             }
+            this.showFeedbackBubble(`fast${this.state.lastFastFeedback}`, bubbleX, bubbleY)
         } else {
             // early trial
             this.assets.soundEarly.play()
             this.state.lastFastFeedback = 0 // Reset fast streak
         }
+    },
 
-        // Update RT stats if needed
+    /**
+     * Updates the running reaction time median if the trial is valid.
+     * @param {object} outcome - The outcome object from finishTrial.
+     * @private
+     */
+    _updateReactionTimeStats: function (outcome) {
         if (outcome.includeInMedian && typeof outcome.rt === "number") {
             this.state.reactionTimes.push(outcome.rt)
             this.state.medianRT = this.computeMedian(this.state.reactionTimes)
         }
+    },
 
-        // Log keypress data
+    /**
+     * Logs the data for the completed trial.
+     * @param {object} outcome - The outcome object from finishTrial.
+     * @private
+     */
+    _logTrialData: function (outcome) {
         if (outcome.timestamp) {
-            const trialNumber = this.state.trials
             const record = {
                 Level: "level 1",
                 Phase: this.state.phaseIndex + 1,
-                TrialType: outcome.type === "timeout" ? "Timeout" : outcome.type.charAt(0).toUpperCase() + outcome.type.slice(1), // "Fast", "Slow", "Early", or "Timeout"
+                TrialType: outcome.type === "timeout" ? "Timeout" : outcome.type.charAt(0).toUpperCase() + outcome.type.slice(1),
                 Time: outcome.timestamp,
-                Trial: trialNumber,
+                Trial: this.state.trials,
                 RT: outcome.type === "early" || outcome.type === "timeout" ? "NA" : outcome.rt,
                 Error: outcome.type === "early" || outcome.type === "timeout" ? 1 : 0,
                 Threshold: typeof outcome.thresholdUsed === "number" ? outcome.thresholdUsed : this.getEffectiveThreshold(),
@@ -816,26 +847,25 @@ const level1 = {
             }
             this.state.data.push(record)
         }
+    },
 
-        // Update last trial type for streak tracking
-        this.state.lastTrialType = outcome.type
-
-        // End of phase or level
+    /**
+     * Checks if the current phase or the entire level is complete.
+     * If not, starts a new trial.
+     * @private
+     */
+    _checkForPhaseOrLevelEnd: function () {
         const epsilon = 1e-6
         const currentPhaseTarget = this.ensurePhaseTarget()
         if (this.state.score + epsilon >= this.state.phaseFloorScore + currentPhaseTarget) {
             if (this.state.phaseIndex < 2) {
                 this.startPhaseBreak()
-                return
             } else {
-                // Phase 3 completed
                 this.endLevel()
-                return
             }
+        } else {
+            this.startNewTrial()
         }
-
-        // Otherwise, start the next trial
-        this.startNewTrial()
     },
 
     /**
