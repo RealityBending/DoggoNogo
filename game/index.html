@@ -5,22 +5,35 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>Doggo/Nogo: The Game</title>
         <style>
+            :root {
+                --target-width: 1792;
+                --target-height: 1024;
+            }
             body {
                 margin: 0;
                 display: flex;
                 justify-content: center;
                 align-items: center;
-                height: 100vh;
+                min-height: 100vh;
                 background-color: #f0f0f0;
+            }
+            #canvasWrapper {
+                position: relative;
             }
             canvas {
                 border: 1px solid black;
-                background-color: #fff;
+                background-color: #000;
+                display: block;
+                width: 100%; /* CSS size; actual drawing buffer set in JS */
+                height: auto;
+                aspect-ratio: calc(var(--target-width) / var(--target-height));
             }
         </style>
     </head>
     <body>
-        <canvas id="gameCanvas" width="800" height="600"></canvas>
+        <div id="canvasWrapper">
+            <canvas id="gameCanvas"></canvas>
+        </div>
 
         <!-- STANDALONE VERSION OF THE GAME -->
 
@@ -28,18 +41,51 @@
         <script src="game.js"></script>
         <!-- Central game engine -->
         <script src="engine.js"></script>
+        <!-- Intro runner -->
+        <script src="intro.js"></script>
         <!-- Level-specific game logic -->
         <script src="levels/level1.js"></script>
+        <script src="levels/level1_intro.js"></script>
         <!-- Main game manager -->
         <script>
             // This script is the entry point for the standalone game.
             // It finds the canvas, loads the necessary scripts, and starts the game engine.
+            const TARGET_W = 1792
+            const TARGET_H = 1024
+            const ASPECT = TARGET_W / TARGET_H
             const canvas = document.getElementById("gameCanvas")
+
+            function sizeCanvas() {
+                const maxW = window.innerWidth
+                const maxH = window.innerHeight
+                // Constrain by width first
+                let w = Math.min(TARGET_W, maxW)
+                let h = Math.round(w / ASPECT)
+                if (h > maxH) {
+                    h = Math.min(TARGET_H, maxH)
+                    w = Math.round(h * ASPECT)
+                }
+                // Set drawing buffer (for crisp rendering)
+                const dpr = window.devicePixelRatio || 1
+                canvas.width = Math.round(w * dpr)
+                canvas.height = Math.round(h * dpr)
+                // Set CSS size
+                canvas.style.width = w + "px"
+                canvas.style.height = h + "px"
+                const ctx = canvas.getContext("2d")
+                ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+            }
+
+            sizeCanvas()
+            window.addEventListener("resize", () => {
+                sizeCanvas()
+            })
 
             // The DoggoNogoEngine, DoggoNogoUI, and level1 objects are expected to be available globally.
             if (canvas && typeof DoggoNogoEngine !== "undefined" && typeof level1 !== "undefined" && typeof DoggoNogoUI !== "undefined") {
                 DoggoNogoEngine.run(canvas, level1, {
-                    assetBasePath: "", // Use paths relative to this HTML file
+                    assetBasePath: "assets/",
+                    introSequence: typeof level1IntroSequence !== "undefined" ? level1IntroSequence : null,
                     onFinish: (state) => {
                         console.log("Game finished. Final state:", state)
                         // The score screen is already shown by the engine.

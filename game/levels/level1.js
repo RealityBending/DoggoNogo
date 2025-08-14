@@ -68,6 +68,11 @@
  *   phaseMinTarget = max(minScore, (minTrialsPerPhase / 2) * minScore)
  * Dynamic targets are the max of this minimum and an estimate based on
  * remaining trials (assuming ~50% fast), preventing too-short phases.
+ *
+ * Performance Score (IES)
+ * -------------------------
+ * The performance score is based on the Inverse Efficiency Score (IES),
+ * calculated as Mean Correct RT / (1 - Error Rate).
  */
 
 const level1 = {
@@ -91,9 +96,13 @@ const level1 = {
         // RT thresholds and bounds
         gameDifficulty: 0.75, // dimensionless; effective threshold = medianRT / gameDifficulty
 
+        // IES population parameters (for Z-scoring)
+        populationMean: 300,
+        populationSD: 20,
+
         // Physics properties for the jump
         gravity: 0.5,
-        maxJumpStrength: -7.5, // Jump strength for a 0ms RT
+        maxJumpStrength: -8, // Jump strength for a 0ms RT
         minJumpStrength: -1, // Jump strength for the slowest RT
         // Animations and size
         stimulusFallDistance: 0.05, // % of canvas height
@@ -116,8 +125,16 @@ const level1 = {
         imgFeedbackFast2: new Image(),
         imgFeedbackFast3: new Image(),
         soundBackground: new Audio(),
-        soundCorrect: new Audio(),
+        soundFast: new Audio(),
         soundEvolve: new Audio(),
+        soundLevelUp: new Audio(),
+        soundSlow: new Audio(),
+        soundEarly: new Audio(),
+
+        // (Intro assets moved to intro_assets.js)
+        // Cover screen assets (shared)
+        imgCover: new Image(),
+        imgCoverText: new Image(),
     },
 
     state: {
@@ -229,19 +246,28 @@ const level1 = {
         const base = (options && options.assetBasePath) || ""
         // Set asset sources
         // Preload all player sprites for phase-based swapping
-        this.assets.imgPlayer1.src = base + "assets/level1/player_1.png"
-        this.assets.imgPlayer2.src = base + "assets/level1/player_2.png"
-        this.assets.imgPlayer3.src = base + "assets/level1/player_3.png"
-        this.assets.imgStimulus.src = base + "assets/level1/stimulus.png"
-        this.assets.imgBackground.src = base + "assets/level1/background.png"
-        this.assets.imgFeedbackSlow.src = base + "assets/level1/feedback_slow1.png"
-        this.assets.imgFeedbackLate.src = base + "assets/level1/feedback_late1.png"
-        this.assets.imgFeedbackFast1.src = base + "assets/level1/feedback_fast1.png"
-        this.assets.imgFeedbackFast2.src = base + "assets/level1/feedback_fast2.png"
-        this.assets.imgFeedbackFast3.src = base + "assets/level1/feedback_fast3.png"
-        this.assets.soundBackground.src = base + "assets/level1/sound_background.mp3"
-        this.assets.soundCorrect.src = base + "assets/level1/sound_correct.mp3"
-        this.assets.soundEvolve.src = base + "assets/level1/sound_evolve.mp3"
+        this.assets.imgPlayer1.src = base + "level1/player_1.png"
+        this.assets.imgPlayer2.src = base + "level1/player_2.png"
+        this.assets.imgPlayer3.src = base + "level1/player_3.png"
+        this.assets.imgStimulus.src = base + "level1/stimulus.png"
+        this.assets.imgBackground.src = base + "level1/background.png"
+        this.assets.imgFeedbackSlow.src = base + "level1/feedback_slow1.png"
+        this.assets.imgFeedbackLate.src = base + "level1/feedback_late1.png"
+        this.assets.imgFeedbackFast1.src = base + "level1/feedback_fast1.png"
+        this.assets.imgFeedbackFast2.src = base + "level1/feedback_fast2.png"
+        this.assets.imgFeedbackFast3.src = base + "level1/feedback_fast3.png"
+        this.assets.soundBackground.src = base + "level1/sound_background.mp3"
+        this.assets.soundFast.src = base + "level1/sound_fast.mp3"
+        this.assets.soundSlow.src = base + "level1/sound_slow.mp3"
+        this.assets.soundEarly.src = base + "level1/sound_early.mp3"
+        this.assets.soundEvolve.src = base + "level1/sound_evolve.mp3"
+
+        // Generic assets (shared across levels)
+        this.assets.soundLevelUp.src = base + "sound_levelup.mp3"
+
+        // Cover assets (root-level)
+        this.assets.imgCover.src = base + "cover1_noText.png"
+        this.assets.imgCoverText.src = base + "text.png"
 
         // Create a promise that resolves when all assets are loaded
         const assetRefs = [
@@ -256,8 +282,14 @@ const level1 = {
             this.assets.imgFeedbackFast2,
             this.assets.imgFeedbackFast3,
             this.assets.soundBackground,
-            this.assets.soundCorrect,
+            this.assets.soundFast,
             this.assets.soundEvolve,
+            this.assets.soundLevelUp,
+            this.assets.soundSlow,
+            this.assets.soundEarly,
+            // Cover assets
+            this.assets.imgCover,
+            this.assets.imgCoverText,
         ]
         const promises = assetRefs.map((asset) => {
             return new Promise((resolve, reject) => {
@@ -705,6 +737,7 @@ const level1 = {
                     includeInMedian: false,
                     stimulusX: this.state.stimulus.x,
                     stimulusY: this.state.stimulus.y,
+                    timestamp: new Date().toISOString(),
                 })
             }, this.state.maxRT)
         }, delay)
@@ -730,6 +763,7 @@ const level1 = {
 
         // Show feedback bubble for slow or timeout trials
         if (outcome.type === "slow") {
+            this.assets.soundSlow.play()
             this.showFeedbackBubble("slow", bubbleX, bubbleY)
             this.state.lastFastFeedback = 0 // Reset fast streak
         } else if (outcome.type === "timeout") {
@@ -755,6 +789,7 @@ const level1 = {
             }
         } else {
             // early trial
+            this.assets.soundEarly.play()
             this.state.lastFastFeedback = 0 // Reset fast streak
         }
 
@@ -773,7 +808,8 @@ const level1 = {
                 TrialType: outcome.type === "timeout" ? "Timeout" : outcome.type.charAt(0).toUpperCase() + outcome.type.slice(1), // "Fast", "Slow", "Early", or "Timeout"
                 Time: outcome.timestamp,
                 Trial: trialNumber,
-                RT: outcome.type === "early" ? "NA" : outcome.rt,
+                RT: outcome.type === "early" || outcome.type === "timeout" ? "NA" : outcome.rt,
+                Error: outcome.type === "early" || outcome.type === "timeout" ? 1 : 0,
                 Threshold: typeof outcome.thresholdUsed === "number" ? outcome.thresholdUsed : this.getEffectiveThreshold(),
                 Score: this.state.score,
                 ScoreChange: outcome.points,
@@ -1017,6 +1053,7 @@ const level1 = {
      */
     endLevel: function () {
         this.state.gameState = "done"
+        this.assets.soundLevelUp.play()
         document.removeEventListener("keydown", this.boundKeyDownHandler)
         this.assets.soundBackground.pause()
         this.assets.soundBackground.currentTime = 0
@@ -1035,7 +1072,7 @@ const level1 = {
             return
         }
         // Otherwise, end immediately
-        this.endGameCallback(this.state.reactionTimes)
+        this.endGameCallback(this.state)
     },
 
     /**
@@ -1056,7 +1093,7 @@ const level1 = {
             if (this.boundClickHandler) {
                 this.state.canvas.removeEventListener("click", this.boundClickHandler)
             }
-            this.endGameCallback(this.state.reactionTimes)
+            this.endGameCallback(this.state)
         }
     },
 
@@ -1162,7 +1199,7 @@ const level1 = {
             const points = this.params.minScore + nRT * (this.params.maxScore - this.params.minScore)
 
             // Feedback and jump/sound
-            this.assets.soundCorrect.play()
+            this.assets.soundFast.play()
             this.jump(reactionTime)
 
             const nowISO = new Date().toISOString()

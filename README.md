@@ -1,9 +1,14 @@
 # Doggo/Nogo: The Neuropsychological Game
 
-- [Standalone](https://realitybending.github.io/DoggoNogo/game/)
-- [JsPsych](https://realitybending.github.io/DoggoNogo/example_jspysch.html)
+The game can be run as a standalone html or integrated within JsPsych.
 
-Please check-out the following:
+Play the game:
 
-- [**Study 1**](https://github.com/RealityBending/DoggoNogoValidation)
+- [**Standalone**](https://realitybending.github.io/DoggoNogo/game/)
+- [**JsPsych**](https://realitybending.github.io/DoggoNogo/example_jspsych.html)
+
+
+Studies:
+
+- [**Validation 1**](https://github.com/RealityBending/DoggoNogoValidation)
 

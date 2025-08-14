@@ -10,11 +10,79 @@
 */
 
 ;(function (global) {
+    // Inline asset manifest used for preload defaults
+    if (!global.DoggoNogoAssets) {
+        global.DoggoNogoAssets = {
+            shared: { images: ["cover1_noText.png", "text.png"], audio: ["sound_levelup.mp3"] },
+            level1: {
+                images: [
+                    "level1/player_1.png",
+                    "level1/player_2.png",
+                    "level1/player_3.png",
+                    "level1/stimulus.png",
+                    "level1/background.png",
+                    "level1/feedback_slow1.png",
+                    "level1/feedback_late1.png",
+                    "level1/feedback_fast1.png",
+                    "level1/feedback_fast2.png",
+                    "level1/feedback_fast3.png",
+                    "level1/intro_background.png",
+                ],
+                audio: [
+                    "level1/sound_background.mp3",
+                    "level1/sound_fast.mp3",
+                    "level1/sound_slow.mp3",
+                    "level1/sound_early.mp3",
+                    "level1/sound_evolve.mp3",
+                    "level1/sound_intro_metaldoor.mp3",
+                    "level1/sound_intro_dogwhining.mp3",
+                ],
+            },
+        }
+    }
+    function normalizeBasePath(p) {
+        if (!p) return ""
+        // Ensure trailing slash and collapse any duplicated segments like assets/assets
+        let out = p.replace(/\\+/g, "/")
+        out = out.replace(/assets\/assets\//g, "assets/")
+        if (!out.endsWith("/")) out += "/"
+        return out
+    }
+
+    // Compute a canvas size that preserves the target 1792x1024 aspect ratio while fitting in the viewport.
+    function computeResponsiveSize(targetW = 1792, targetH = 1024) {
+        const ASPECT = targetW / targetH
+        const maxW = window.innerWidth || targetW
+        const maxH = window.innerHeight || targetH
+        // Start by constraining width
+        let width = Math.min(targetW, maxW)
+        let height = Math.round(width / ASPECT)
+        // If height doesn't fit, constrain by height instead
+        if (height > maxH) {
+            height = Math.min(targetH, maxH)
+            width = Math.round(height * ASPECT)
+        }
+        return { width, height }
+    }
+
+    // Build default lists from manifest (if present)
+    function getDefaultLevel1Lists(assetBasePath) {
+        const manifest = global.DoggoNogoAssets
+        if (!manifest || !manifest.level1) {
+            return { images: [], audio: [] }
+        }
+        return {
+            images: manifest.level1.images.slice(),
+            audio: manifest.level1.audio.concat(manifest.shared ? manifest.shared.audio : []),
+        }
+    }
+
     const Integration = {
         // Preload images/audio to reduce in-game stalls. Pass a base path and asset lists.
-        createPreloadTrial: function ({ assetBasePath = "game/", images = [], audio = [] } = {}) {
-            const imagePaths = images.map((p) => assetBasePath + p)
-            const audioPaths = audio.map((p) => assetBasePath + p)
+        createPreloadTrial: function ({ assetBasePath = "game/assets/", images = [], audio = [] } = {}) {
+            const base = normalizeBasePath(assetBasePath)
+            const imagePaths = images.map((p) => base + p)
+            const audioPaths = audio.map((p) => base + p)
             return {
                 type: jsPsychPreload,
                 auto_preload: false,
@@ -28,9 +96,12 @@
 
         // The game trial using call-function. Keeps the game decoupled from jsPsych.
         createGameTrial: function ({
-            width = 800,
-            height = 600,
-            assetBasePath = "game/",
+            width, // optional; if omitted we'll auto-compute maintaining 1792x1024 aspect
+            height, // optional; ignored if width omitted (auto mode)
+            maintainAspect = true,
+            targetAspectWidth = 1792,
+            targetAspectHeight = 1024,
+            assetBasePath = "game/assets/",
             levelGetter = () => (typeof level1 !== "undefined" ? level1 : undefined),
             trialsNumber,
         } = {}) {
@@ -41,8 +112,21 @@
                     const el = jsPsych.getDisplayElement()
                     const canvas = document.createElement("canvas")
                     canvas.id = "gameCanvas"
-                    canvas.width = width
-                    canvas.height = height
+                    let w = width
+                    let h = height
+                    if (maintainAspect && (typeof w !== "number" || typeof h !== "number")) {
+                        const size = computeResponsiveSize(targetAspectWidth, targetAspectHeight)
+                        w = size.width
+                        h = size.height
+                    } else if (maintainAspect && w && !h) {
+                        // Derive h from w
+                        h = Math.round(w * (targetAspectHeight / targetAspectWidth))
+                    }
+                    canvas.width = w || 1792
+                    canvas.height = h || 1024
+                    // Center canvas via container styling
+                    canvas.style.display = "block"
+                    canvas.style.margin = "0 auto"
                     canvas.style.border = "1px solid #000"
                     el.appendChild(canvas)
 
@@ -55,9 +139,10 @@
 
                     // Use the centralized game engine
                     DoggoNogoEngine.run(canvas, level, {
-                        assetBasePath,
+                        assetBasePath: normalizeBasePath(assetBasePath),
                         levelParams: { trialsNumber },
                         continueHint: "Press SPACE to continue",
+                        introSequence: typeof level1IntroSequence !== "undefined" ? level1IntroSequence : null,
                         onFinish: (finalState) => {
                             // Data to be saved by jsPsych
                             const trialData = {
@@ -89,34 +174,25 @@
         // Convenience: build a complete Level 1 sequence with optional preload and a single game trial
         level1: function ({
             includePreload = false,
-            assetBasePath = "game/",
+            assetBasePath = "game/assets/",
             preloadImages,
             preloadAudio,
-            width = 800,
-            height = 600,
+            // Optional: override sizing, else responsive 1792x1024 preserved
+            width,
+            height,
+            maintainAspect = true,
             trialsNumber,
         } = {}) {
             const trials = []
-
-            // Defaults for level1 assets if not provided
-            const defaultImages = [
-                "assets/level1/player_1.png",
-                "assets/level1/player_2.png",
-                "assets/level1/player_3.png",
-                "assets/level1/stimulus.png",
-                "assets/level1/background.png",
-                "assets/level1/feedback_slow1.png",
-                "assets/level1/feedback_late1.png",
-                "assets/level1/feedback_fast1.png",
-                "assets/level1/feedback_fast2.png",
-                "assets/level1/feedback_fast3.png",
-            ]
-            const defaultAudio = ["assets/level1/sound_background.mp3", "assets/level1/sound_correct.mp3", "assets/level1/sound_evolve.mp3"]
+            const base = normalizeBasePath(assetBasePath)
+            const defaults = getDefaultLevel1Lists(base)
+            const defaultImages = defaults.images
+            const defaultAudio = defaults.audio
 
             if (includePreload) {
                 trials.push(
                     this.createPreloadTrial({
-                        assetBasePath,
+                        assetBasePath: base,
                         images: preloadImages || defaultImages,
                         audio: preloadAudio || defaultAudio,
                     })
@@ -124,7 +200,15 @@
             }
 
             // Single in-canvas game trial that includes native-like start and score screens
-            trials.push(this.createGameTrial({ width, height, assetBasePath, trialsNumber }))
+            trials.push(
+                this.createGameTrial({
+                    width,
+                    height,
+                    maintainAspect,
+                    assetBasePath: base,
+                    trialsNumber,
+                })
+            )
 
             return trials
         },

@@ -14,7 +14,9 @@
         <!-- Game scripts -->
         <script src="game/game.js"></script>
         <script src="game/engine.js"></script>
+        <script src="game/intro.js"></script>
         <script src="game/levels/level1.js"></script>
+        <script src="game/levels/level1_intro.js"></script>
         <!-- Integration helpers -->
         <script src="game/jspsych.js"></script>
     </head>
@@ -35,9 +37,7 @@
         timeline.push(
             ...DoggoNogo.level1({
                 includePreload: true,
-                assetBasePath: "game/",
-                width: 800,
-                height: 600,
+                assetBasePath: "game/assets/",
                 trialsNumber: 6,
             })
         )
