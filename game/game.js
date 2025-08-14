@@ -22,61 +22,6 @@
             drawCenteredText(ctx, canvas, [text], 30, "black")
         },
 
-        showStartScreen(canvas, options = {}) {
-            const { backgroundImg, stimulusImg } = options
-            const ctx = canvas.getContext("2d")
-
-            // Draw background
-            if (backgroundImg && backgroundImg.complete) {
-                ctx.drawImage(backgroundImg, 0, 0, canvas.width, canvas.height)
-            } else {
-                ctx.clearRect(0, 0, canvas.width, canvas.height)
-            }
-
-            // Add a semi-transparent overlay for text readability
-            ctx.fillStyle = "rgba(0, 0, 0, 0.5)"
-            ctx.fillRect(0, 0, canvas.width, canvas.height)
-
-            // Draw instruction text
-            ctx.textAlign = "center"
-            ctx.fillStyle = "white"
-
-            ctx.font = `bold ${scaleFontPx(48, canvas)}px Arial`
-            ctx.fillText("Instructions", canvas.width / 2, canvas.height * 0.2)
-
-            ctx.font = `${scaleFontPx(28, canvas)}px Arial`
-            const instructions = [
-                "Doggo is in need of urgent care and feeding!",
-                "",
-                "Help him get as many bones as possible by pressing",
-                "the down arrow as fast as possible.",
-            ]
-            const lineHeight = 40
-            const instructionStartY = canvas.height * 0.4
-            instructions.forEach((line, index) => {
-                ctx.fillText(line, canvas.width / 2, instructionStartY + index * lineHeight)
-            })
-
-            // Stimulus image placement between instruction text block and bottom prompt
-            if (stimulusImg && stimulusImg.complete) {
-                const availableTop = instructionStartY + instructions.length * lineHeight + scaleFontPx(20, canvas)
-                const availableBottom = canvas.height * 0.85 - scaleFontPx(40, canvas) // leave space for prompt
-                const centerY = (availableTop + availableBottom) / 2
-                const maxHeight = (availableBottom - availableTop) * 0.8
-                const aspect = stimulusImg.naturalWidth / stimulusImg.naturalHeight
-                const displayHeight = Math.min(maxHeight, canvas.height * 0.18)
-                const displayWidth = displayHeight * aspect
-                ctx.drawImage(stimulusImg, canvas.width / 2 - displayWidth / 2, centerY - displayHeight / 2, displayWidth, displayHeight)
-            }
-
-            // Add "Press DOWN arrow to start" after a delay
-            setTimeout(() => {
-                ctx.font = `bold ${scaleFontPx(32, canvas)}px Arial`
-                ctx.fillStyle = "yellow"
-                ctx.fillText("Press the DOWN arrow to start", canvas.width / 2, canvas.height * 0.85)
-            }, 1000)
-        },
-
         /**
          * Converts a Z-score to a quantile assuming a standard normal distribution.
          * Since lower IES is better, the quantile reflects the percentage of the population

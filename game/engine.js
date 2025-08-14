@@ -56,15 +56,21 @@
                     await IntroRunner.run(this.canvas, introSequence, mergedAssets)
                 }
 
-                // 2. Show start screen (prefer level-specific override) and wait for user to start
-                if (this.level.showStartScreen) {
-                    this.level.showStartScreen(this.canvas)
-                } else if (typeof DoggoNogoUI !== "undefined" && DoggoNogoUI.showStartScreen) {
-                    DoggoNogoUI.showStartScreen(this.canvas, {
-                        backgroundImg: this.level.assets.imgBackground,
-                        stimulusImg: this.level.assets.imgStimulus,
-                    })
+                // 2. Show instruction screen and wait for user to start
+                if (this.level.showInstructionScreen) {
+                    this.level.showInstructionScreen(this.canvas)
+                } else {
+                    // Fallback for levels without an instruction screen
+                    console.warn("Level does not have a .showInstructionScreen() method.")
+                    // Optionally draw a generic "Ready?" screen
+                    const ctx = this.canvas.getContext("2d")
+                    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
+                    ctx.textAlign = "center"
+                    ctx.fillStyle = "black"
+                    ctx.font = "30px Arial"
+                    ctx.fillText("Ready?", this.canvas.width / 2, this.canvas.height / 2)
                 }
+
                 // Start background music here so it plays during instruction screen
                 const bg = this.level.assets.soundBackground
                 if (bg) {

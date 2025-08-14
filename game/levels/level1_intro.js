@@ -43,7 +43,7 @@ const level1IntroSequence = [
     { type: "wait", duration: 1000 },
     { type: "image", what: "imgIntroBackground", animation: "appear" },
     { type: "image", what: "imgPlayer1", animation: "appear" },
-    { type: "text", what: "You decide to take him home, and name him...", animation: "appear" },
+    { type: "text", what: "You decide to take him home, and name him...", animation: "appear", y: 80 },
     { type: "wait", duration: 2000 },
     { type: "fill", color: "black" },
     { type: "text", what: "Doggo", animation: "reveal", duration: 1000, fontSize: 96 },

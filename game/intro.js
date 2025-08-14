@@ -141,7 +141,7 @@
                     const fadeMs = animation === "reveal" ? step.duration || 600 : 0
                     if (fadeMs === 0) {
                         this.redrawPersistent()
-                        this.drawText(step.what, step.fontSize, false, step.color)
+                        this.drawText(step.what, step.fontSize, false, step.color, step.y)
                     } else {
                         let startTs = null
                         const animate = (ts) => {
@@ -151,7 +151,7 @@
                             this.redrawPersistent()
                             this.ctx.save()
                             this.ctx.globalAlpha = progress
-                            this.drawText(step.what, step.fontSize, false, step.color)
+                            this.drawText(step.what, step.fontSize, false, step.color, step.y)
                             this.ctx.restore()
                             if (progress < 1) requestAnimationFrame(animate)
                         }
@@ -227,19 +227,20 @@
 
         clearCanvas: function () {}, // no-op (handled per step)
 
-        drawText: function (text, fontSize = 36, withOutline = false, color = "white") {
+        drawText: function (text, fontSize = 36, withOutline = false, color = "white", yPercent = 50) {
             this.ctx.textAlign = "center"
             this.ctx.fillStyle = color
             const scale = (this.canvas.width / 1792 + this.canvas.height / 1024) / 2
             const px = Math.round(fontSize * scale)
             this.ctx.font = `bold ${px}px Arial`
+            const yPos = this.canvas.height * ((yPercent || 50) / 100)
 
             if (withOutline) {
                 this.ctx.strokeStyle = "black"
                 this.ctx.lineWidth = 4
-                this.ctx.strokeText(text, this.canvas.width / 2, this.canvas.height / 2)
+                this.ctx.strokeText(text, this.canvas.width / 2, yPos)
             }
-            this.ctx.fillText(text, this.canvas.width / 2, this.canvas.height / 2)
+            this.ctx.fillText(text, this.canvas.width / 2, yPos)
         },
 
         drawBackground: function (img) {
