@@ -75,6 +75,18 @@
  * calculated as Mean Correct RT / (1 - Error Rate).
  */
 
+// Use shared trial type enum if available
+// Guarded global enum definition to avoid duplicate const redeclaration across level scripts
+if (typeof TrialTypes === "undefined") {
+    var TrialTypes =
+        typeof DoggoNogoTrialTypes !== "undefined"
+            ? DoggoNogoTrialTypes
+            : { FAST: "fast", SLOW: "slow", EARLY: "early", TIMEOUT: "timeout", ERROR: "error" }
+} else if (typeof DoggoNogoTrialTypes !== "undefined") {
+    // Sync with shared if available
+    TrialTypes = DoggoNogoTrialTypes
+}
+
 const level1 = {
     // Use jsPsych's time function for consistency
     now: function () {
@@ -418,18 +430,13 @@ const level1 = {
         this.state.phaseRequiredScores[0] = this.computePhaseTarget(0)
 
         // Clear any leftover timers
-        if (this.state.pendingStimulusTimeoutId) {
-            clearTimeout(this.state.pendingStimulusTimeoutId)
-            this.state.pendingStimulusTimeoutId = null
-        }
-        if (this.state.currentTrialTimeoutId) {
-            clearTimeout(this.state.currentTrialTimeoutId)
-            this.state.currentTrialTimeoutId = null
-        }
+        this.clearTrialTimers && this.clearTrialTimers()
 
-        // Start background music
-        this.assets.soundBackground.loop = true
-        this.assets.soundBackground.play()
+        // Start background music (loop)
+        try {
+            this.assets.soundBackground.loop = true
+            if (this.assets.soundBackground.paused) this.assets.soundBackground.play()
+        } catch (e) {}
 
         // Set up keyboard input handler
         this.boundKeyDownHandler = this.handleKeyDown.bind(this)
@@ -446,11 +453,7 @@ const level1 = {
 
         // Start the first trial
         this.assets.imgPlayer = this.assets.imgPlayer1
-        // Play start sound once when game proper begins
-        try {
-            this.assets.soundStart.currentTime = 0
-            this.assets.soundStart.play()
-        } catch (e) {}
+        // Start sound now played centrally by engine.waitForStart()
         this.startNewTrial()
     },
 
@@ -792,17 +795,7 @@ const level1 = {
                 // Timeout: slow (0 points)
                 this.state.currentTrialTimeoutId = null
                 if (this.state.gameState !== "playing") return
-                if (this.state.stimulus.visible) {
-                    // Hide stimulus and play TIMEOUT exit animation
-                    this.state.stimulus.visible = false
-                    this.state.stimulus.exiting = true
-                    this.state.stimulus.exitType = "timeout" // Set the exit type
-                    this.state.stimulus.exitStartTime = this.now()
-                    this.state.stimulus.exitInitialX = this.state.stimulus.x
-                    this.state.stimulus.exitInitialY = this.state.stimulus.y
-                    this.state.stimulus.exitInitialWidth = this.state.stimulus.width
-                    this.state.stimulus.exitInitialHeight = this.state.stimulus.height
-                }
+                if (this.state.stimulus.visible) this.startStimulusExit && this.startStimulusExit("timeout")
                 this.finishTrial({
                     type: "timeout",
                     points: 0,
@@ -825,8 +818,7 @@ const level1 = {
         if (typeof this.state.phaseFloorScore === "number") {
             this.state.score = Math.max(this.state.score, this.state.phaseFloorScore)
         }
-        const sign = outcome.points > 0 ? "+" : ""
-        this.showScoreFeedback(`${sign}${Math.round(outcome.points)}`)
+        this.showScoreDelta(outcome.points)
 
         // Handle sounds and feedback bubbles
         this._handleTrialOutcomeFeedback(outcome)
@@ -853,16 +845,16 @@ const level1 = {
         const bubbleX = this.state.player.x + this.state.player.width / 2
         const bubbleY = this.state.player.y
 
-        if (outcome.type === "slow") {
-            this.assets.soundSlow.play()
+        if (outcome.type === TrialTypes.SLOW) {
+            ;(typeof DoggoNogoShared !== "undefined" ? DoggoNogoShared.safePlay : this.safePlay)(this.assets.soundSlow)
             this.showFeedbackBubble("slow", bubbleX, bubbleY)
             this.state.lastFastFeedback = 0 // Reset fast streak
-        } else if (outcome.type === "timeout") {
+        } else if (outcome.type === TrialTypes.TIMEOUT) {
             this.showFeedbackBubble("late", bubbleX, bubbleY)
             this.state.lastFastFeedback = 0 // Reset fast streak
-        } else if (outcome.type === "fast") {
+        } else if (outcome.type === TrialTypes.FAST) {
             // Logic for fast streak feedback
-            if (this.state.lastTrialType === "fast") {
+            if (this.state.lastTrialType === TrialTypes.FAST) {
                 this.state.lastFastFeedback = (this.state.lastFastFeedback % 3) + 1
             } else {
                 this.state.lastFastFeedback = 1
@@ -870,7 +862,7 @@ const level1 = {
             this.showFeedbackBubble(`fast${this.state.lastFastFeedback}`, bubbleX, bubbleY)
         } else {
             // early trial
-            this.assets.soundEarly.play()
+            ;(typeof DoggoNogoShared !== "undefined" ? DoggoNogoShared.safePlay : this.safePlay)(this.assets.soundEarly)
             this.state.lastFastFeedback = 0 // Reset fast streak
         }
     },
@@ -894,19 +886,28 @@ const level1 = {
      */
     _logTrialData: function (outcome) {
         if (outcome.timestamp) {
-            const record = {
+            const rtVal = outcome.type === TrialTypes.EARLY || outcome.type === TrialTypes.TIMEOUT ? null : outcome.rt
+            this.state.data.push({
                 Level: "level 1",
                 Phase: this.state.phaseIndex + 1,
-                TrialType: outcome.type === "timeout" ? "Timeout" : outcome.type.charAt(0).toUpperCase() + outcome.type.slice(1),
+                TrialType: this.getTrialTypeLabel(outcome.type),
                 Time: outcome.timestamp,
                 Trial: this.state.trials,
-                RT: outcome.type === "early" || outcome.type === "timeout" ? "NA" : outcome.rt,
-                Error: outcome.type === "early" || outcome.type === "timeout" ? 1 : 0,
+                RT: rtVal === null ? "NA" : rtVal,
+                Error: outcome.type === TrialTypes.EARLY || outcome.type === TrialTypes.TIMEOUT ? 1 : 0,
                 Threshold: typeof outcome.thresholdUsed === "number" ? outcome.thresholdUsed : this.getEffectiveThreshold(),
                 Score: this.state.score,
                 ScoreChange: outcome.points,
-            }
-            this.state.data.push(record)
+                ResponseKey: outcome.responseKey || (outcome.type === TrialTypes.TIMEOUT ? "NA" : "ArrowDown"),
+                Correct:
+                    typeof outcome.correct === "boolean"
+                        ? outcome.correct
+                            ? 1
+                            : 0
+                        : outcome.type === TrialTypes.FAST || outcome.type === TrialTypes.SLOW
+                        ? 1
+                        : 0,
+            })
         }
     },
 
@@ -1001,7 +1002,7 @@ const level1 = {
         // State 1: Overlay has just appeared. Wait 1s for effects.
         if (this.state.breakState === "started" && elapsed > 1000) {
             // Play evolution sound
-            this.assets.soundEvolve.play()
+            DoggoNogoShared.safePlay(this.assets.soundEvolve)
 
             // Create sparkles around the player
             const playerCenterX = this.state.player.x + this.state.player.width / 2
@@ -1144,19 +1145,14 @@ const level1 = {
      */
     endLevel: function () {
         this.state.gameState = "done"
-        this.assets.soundLevelUp.play()
+        DoggoNogoShared.safePlay(this.assets.soundLevelUp)
         document.removeEventListener("keydown", this.boundKeyDownHandler)
-        this.assets.soundBackground.pause()
-        this.assets.soundBackground.currentTime = 0
+        try {
+            this.assets.soundBackground.pause()
+            this.assets.soundBackground.currentTime = 0
+        } catch (e) {}
         // Clear timers
-        if (this.state.pendingStimulusTimeoutId) {
-            clearTimeout(this.state.pendingStimulusTimeoutId)
-            this.state.pendingStimulusTimeoutId = null
-        }
-        if (this.state.currentTrialTimeoutId) {
-            clearTimeout(this.state.currentTrialTimeoutId)
-            this.state.currentTrialTimeoutId = null
-        }
+        this.clearTrialTimers()
         // If configured to show in-game Continue button, draw overlay and wait for click
         if (this.state.showContinueButton) {
             this.state.endOverlayVisible = true
@@ -1219,14 +1215,7 @@ const level1 = {
         if (e.key === "s" || e.key === "S") {
             // End immediately without awarding extra points
             // Clean up timers and go straight to end screen
-            if (this.state.pendingStimulusTimeoutId) {
-                clearTimeout(this.state.pendingStimulusTimeoutId)
-                this.state.pendingStimulusTimeoutId = null
-            }
-            if (this.state.currentTrialTimeoutId) {
-                clearTimeout(this.state.currentTrialTimeoutId)
-                this.state.currentTrialTimeoutId = null
-            }
+            this.clearTrialTimers()
             this.endLevel()
             return
         }
@@ -1243,14 +1232,7 @@ const level1 = {
         // Early press before stimulus
         if (!this.state.stimulus.visible && !this.state.stimulus.exiting) {
             // Cancel pending stimulus
-            if (this.state.pendingStimulusTimeoutId) {
-                clearTimeout(this.state.pendingStimulusTimeoutId)
-                this.state.pendingStimulusTimeoutId = null
-            }
-            if (this.state.currentTrialTimeoutId) {
-                clearTimeout(this.state.currentTrialTimeoutId)
-                this.state.currentTrialTimeoutId = null
-            }
+            this.clearTrialTimers()
             // Penalty for early press
             const nowISO = new Date().toISOString()
             const thresholdUsed = this.getEffectiveThreshold()
@@ -1288,7 +1270,7 @@ const level1 = {
                 const include = reactionTime <= trialMaxRT
                 const nowISO = new Date().toISOString()
                 this.finishTrial({
-                    type: "slow",
+                    type: TrialTypes.SLOW,
                     points: 0,
                     rt: reactionTime,
                     includeInMedian: include,
@@ -1296,6 +1278,8 @@ const level1 = {
                     thresholdUsed: threshold,
                     stimulusX: this.state.stimulus.x,
                     stimulusY: this.state.stimulus.y,
+                    responseKey: "ArrowDown",
+                    correct: true,
                 })
                 return
             }
@@ -1306,11 +1290,20 @@ const level1 = {
             const points = this.params.minScore + nRT * (this.params.maxScore - this.params.minScore)
 
             // Feedback and jump/sound
-            this.assets.soundFast.play()
+            DoggoNogoShared.safePlay(this.assets.soundFast)
             this.jump(reactionTime)
 
             const nowISO = new Date().toISOString()
-            this.finishTrial({ type: "fast", points, rt: reactionTime, includeInMedian: true, timestamp: nowISO, thresholdUsed: threshold })
+            this.finishTrial({
+                type: TrialTypes.FAST,
+                points,
+                rt: reactionTime,
+                includeInMedian: true,
+                timestamp: nowISO,
+                thresholdUsed: threshold,
+                responseKey: "ArrowDown",
+                correct: true,
+            })
         }
     },
 
@@ -1373,5 +1366,41 @@ const level1 = {
                 opacity: 1,
             })
         }
+    },
+    showScoreDelta: function (points) {
+        const sign = points > 0 ? "+" : ""
+        this.showScoreFeedback(`${sign}${Math.round(points)}`)
+    },
+    clearTrialTimers: function () {
+        if (this.state.pendingStimulusTimeoutId) {
+            clearTimeout(this.state.pendingStimulusTimeoutId)
+            this.state.pendingStimulusTimeoutId = null
+        }
+        if (this.state.currentTrialTimeoutId) {
+            clearTimeout(this.state.currentTrialTimeoutId)
+            this.state.currentTrialTimeoutId = null
+        }
+    },
+    startStimulusExit: function (type) {
+        const stim = this.state.stimulus
+        stim.visible = false
+        stim.exiting = true
+        stim.exitType = type
+        stim.exitStartTime = this.now()
+        stim.exitInitialX = stim.x
+        stim.exitInitialY = stim.y
+        stim.exitInitialWidth = stim.width
+        stim.exitInitialHeight = stim.height
+    },
+    safePlay: function (audioEl, reset = true) {
+        if (!audioEl) return
+        try {
+            if (reset) audioEl.currentTime = 0
+            audioEl.play()
+        } catch (e) {}
+    },
+    getTrialTypeLabel: function (type) {
+        if (type === "timeout") return "Timeout"
+        return type.charAt(0).toUpperCase() + type.slice(1)
     },
 }

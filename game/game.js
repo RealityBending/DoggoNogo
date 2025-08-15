@@ -107,3 +107,58 @@
 
     global.DoggoNogoUI = UI
 })(typeof window !== "undefined" ? window : globalThis)
+
+// Embedded shared helpers (previously in shared_helpers.js)
+;(function (global) {
+    if (typeof global.DoggoNogoTrialTypes === "undefined") {
+        global.DoggoNogoTrialTypes = { FAST: "fast", SLOW: "slow", EARLY: "early", TIMEOUT: "timeout", ERROR: "error" }
+    }
+    if (typeof global.DoggoNogoShared === "undefined") {
+        global.DoggoNogoShared = {
+            safePlay(audioEl, reset = true) {
+                if (!audioEl) return
+                try {
+                    if (reset) audioEl.currentTime = 0
+                    audioEl.play()
+                } catch (e) {}
+            },
+            clearTrialTimers(state) {
+                if (!state) return
+                if (state.pendingStimulusTimeoutId) {
+                    clearTimeout(state.pendingStimulusTimeoutId)
+                    state.pendingStimulusTimeoutId = null
+                }
+                if (state.currentTrialTimeoutId) {
+                    clearTimeout(state.currentTrialTimeoutId)
+                    state.currentTrialTimeoutId = null
+                }
+            },
+            startStimulusExit(state, nowFn, type) {
+                if (!state || !state.stimulus || !nowFn) return
+                const stim = state.stimulus
+                stim.visible = false
+                stim.exiting = true
+                stim.exitType = type
+                stim.exitStartTime = nowFn()
+                stim.exitInitialX = stim.x
+                stim.exitInitialY = stim.y
+                stim.exitInitialWidth = stim.width
+                stim.exitInitialHeight = stim.height
+            },
+            showScoreDelta(levelObj, points) {
+                if (!levelObj || typeof levelObj.showScoreFeedback !== "function") return
+                const sign = points > 0 ? "+" : ""
+                levelObj.showScoreFeedback(`${sign}${Math.round(points)}`)
+            },
+            getTrialTypeLabel(type) {
+                return type === "timeout" ? "Timeout" : type.charAt(0).toUpperCase() + type.slice(1)
+            },
+            computeMedian(arr) {
+                if (!arr || !arr.length) return null
+                const s = [...arr].sort((a, b) => a - b)
+                const m = Math.floor(s.length / 2)
+                return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2
+            },
+        }
+    }
+})(typeof window !== "undefined" ? window : globalThis)

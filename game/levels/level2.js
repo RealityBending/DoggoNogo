@@ -1,27 +1,30 @@
 /**
- * @file Simplified Level 2 logic.
+ * Level 2 logic (directional variant of Level 1).
  *
- * Based on level1, but stripped of:
- *  - All audio (no music or SFX)
- *  - Feedback bubbles / images
- *  - Sparkle / particle effects
- *  - Evolution sound & visual effects (just swaps sprite silently)
+ * Differences vs Level 1:
+ *  - Two directional stimuli (left/right) requiring ArrowLeft / ArrowRight.
+ *  - Explicit "error" outcome (wrong direction) separate from early / timeout.
+ *  - Simplified visual feedback (numeric score delta + evolution sparkles only).
+ *  - Audio behavior mirrors Level 1 (background music + fast/slow/error/evolve SFX).
+ *  - Start sound is played centrally by the engine to avoid duplication.
  *
- * Uses new level2 assets:
- *  - player_1.png, player_2.png, player_3.png
- *  - background.png
- *  - stimulus_yellow.png (named imgStimulus)
- *
- * Keeps core gameplay (RT trials, phases, scoring, adaptive threshold).
- *
- * Scoring Rules (Level 2):
- *  Correct Fast (RT <= threshold): + between minScore and maxScore (scaled by speed)
- *  Correct Slow (RT > threshold but before timeout): + minScore/2
- *  Error (wrong arrow key): - minScore/2
- *  Early (key before stimulus shows): - minScore
- *  Timeout (no response before maxRT): 0
- * Only correct (fast or slow) trials feed the adaptive median RT.
+ * Scoring:
+ *  Fast   (<= threshold)                : + scaled between minScore..maxScore
+ *  Slow   (> threshold, before timeout) : + minScore/2
+ *  Error  (wrong direction)             : - minScore/2
+ *  Early  (before stimulus visible)     : - minScore
+ *  Timeout (no response)                : 0
+ * Only correct fast/slow trials update the adaptive median RT.
  */
+
+if (typeof TrialTypes === "undefined") {
+    var TrialTypes =
+        typeof DoggoNogoTrialTypes !== "undefined"
+            ? DoggoNogoTrialTypes
+            : { FAST: "fast", SLOW: "slow", EARLY: "early", TIMEOUT: "timeout", ERROR: "error" }
+} else if (typeof DoggoNogoTrialTypes !== "undefined") {
+    TrialTypes = DoggoNogoTrialTypes
+}
 
 const level2 = {
     now: function () {
@@ -516,7 +519,7 @@ const level2 = {
                     this.state.stimulus.exitInitialHeight = this.state.stimulus.height
                 }
                 this.finishTrial({
-                    type: "timeout",
+                    type: TrialTypes.TIMEOUT,
                     points: 0,
                     includeInMedian: false,
                     stimulusX: this.state.stimulus.x,
@@ -529,21 +532,21 @@ const level2 = {
     finishTrial: function (outcome) {
         this.state.score += outcome.points
         if (typeof this.state.phaseFloorScore === "number") this.state.score = Math.max(this.state.score, this.state.phaseFloorScore)
-        const sign = outcome.points > 0 ? "+" : ""
-        this.showScoreFeedback(`${sign}${Math.round(outcome.points)}`)
+        DoggoNogoShared.showScoreDelta(this, outcome.points)
         // Only update median with correct (non-error) responses explicitly marked correct (fast/slow)
         if (outcome.includeInMedian && typeof outcome.rt === "number" && (outcome.correct === undefined || outcome.correct === true)) {
             this.state.reactionTimes.push(outcome.rt)
             this.state.medianRT = this.computeMedian(this.state.reactionTimes)
         }
         if (outcome.timestamp) {
+            const rtVal = outcome.type === "early" || outcome.type === "timeout" || outcome.type === "error" ? null : outcome.rt
             this.state.data.push({
                 Level: "level 2",
                 Phase: this.state.phaseIndex + 1,
-                TrialType: outcome.type === "timeout" ? "Timeout" : outcome.type.charAt(0).toUpperCase() + outcome.type.slice(1),
+                TrialType: this.getTrialTypeLabel(outcome.type),
                 Time: outcome.timestamp,
                 Trial: this.state.trials,
-                RT: outcome.type === "early" || outcome.type === "timeout" || outcome.type === "error" ? "NA" : outcome.rt,
+                RT: rtVal === null ? "NA" : rtVal,
                 Error: outcome.type === "early" || outcome.type === "timeout" || outcome.type === "error" ? 1 : 0,
                 Threshold: typeof outcome.thresholdUsed === "number" ? outcome.thresholdUsed : this.getEffectiveThreshold(),
                 Score: this.state.score,
@@ -575,6 +578,7 @@ const level2 = {
         return this.state.phaseRequiredScores[this.state.phaseIndex]
     },
     computePhaseTarget: function (phaseIdx) {
+        // Heuristic: assume ~50% of remaining trials in this phase will be fast; enforce a floor tied to minTrialsPerPhase.
         const phasesRemaining = Math.max(1, 3 - phaseIdx)
         const trialsLeft = Math.max(0, this.params.trialsNumber - this.state.trials)
         const trialsThisPhase = Math.ceil(trialsLeft / phasesRemaining)
@@ -597,10 +601,7 @@ const level2 = {
             const cx = this.state.player.x + this.state.player.width / 2
             const cy = this.state.player.y + this.state.player.height / 2
             this.createRedSparkles(cx, cy, 40)
-            try {
-                this.assets.soundEvolve.currentTime = 0
-                this.assets.soundEvolve.play()
-            } catch (e) {}
+            DoggoNogoShared.safePlay(this.assets.soundEvolve)
             this.state.breakState = "effects" // still reuse state names for simplicity
         }
         if (this.state.breakState === "effects" && elapsed > 2000) {
@@ -639,8 +640,7 @@ const level2 = {
         this.state.breakState = "started"
         this.state.breakStartTime = this.now()
         this.state.showBreakText = false
-        if (this.state.pendingStimulusTimeoutId) clearTimeout(this.state.pendingStimulusTimeoutId)
-        if (this.state.currentTrialTimeoutId) clearTimeout(this.state.currentTrialTimeoutId)
+        this.clearTrialTimers()
         this.state.stimulus.visible = false
         this.state.stimulus.exiting = false
         if (this.state.phaseIndex === 1) {
@@ -667,17 +667,13 @@ const level2 = {
     },
     endLevel: function () {
         this.state.gameState = "done"
-        try {
-            this.assets.soundLevelUp.currentTime = 0
-            this.assets.soundLevelUp.play()
-        } catch (e) {}
+        DoggoNogoShared.safePlay(this.assets.soundLevelUp)
         try {
             this.assets.soundBackground.pause()
             this.assets.soundBackground.currentTime = 0
         } catch (e) {}
         document.removeEventListener("keydown", this.boundKeyDownHandler)
-        if (this.state.pendingStimulusTimeoutId) clearTimeout(this.state.pendingStimulusTimeoutId)
-        if (this.state.currentTrialTimeoutId) clearTimeout(this.state.currentTrialTimeoutId)
+        this.clearTrialTimers()
         if (this.state.showContinueButton) {
             this.state.endOverlayVisible = true
             return
@@ -723,31 +719,25 @@ const level2 = {
             if (isSpace) this.resumeFromBreak()
             return
         }
-        const isResponseKey = e.key === "ArrowLeft" || e.key === "ArrowRight"
-        if (!isResponseKey) return
+        if (!this.isResponseKey(e.key)) return
         if (!this.state.stimulus.visible && !this.state.stimulus.exiting) {
-            if (this.state.pendingStimulusTimeoutId) clearTimeout(this.state.pendingStimulusTimeoutId)
-            if (this.state.currentTrialTimeoutId) clearTimeout(this.state.currentTrialTimeoutId)
+            this.clearTrialTimers()
             const nowISO = new Date().toISOString()
             const thresholdUsed = this.getEffectiveThreshold()
-            try {
-                this.assets.soundError.currentTime = 0
-                this.assets.soundError.play()
-            } catch (e) {}
-            this.finishTrial({ type: "early", points: -this.params.minScore, includeInMedian: false, timestamp: nowISO, thresholdUsed })
+            DoggoNogoShared.safePlay(this.assets.soundError)
+            this.finishTrial({
+                type: TrialTypes.EARLY,
+                points: -this.params.minScore,
+                includeInMedian: false,
+                timestamp: nowISO,
+                thresholdUsed,
+            })
             return
         }
         if (this.state.stimulus.visible && !this.state.stimulus.exiting) {
             const reactionTime = this.now() - this.state.startTime
             if (this.state.currentTrialTimeoutId) clearTimeout(this.state.currentTrialTimeoutId)
-            this.state.stimulus.visible = false
-            this.state.stimulus.exiting = true
-            this.state.stimulus.exitType = "catch"
-            this.state.stimulus.exitStartTime = this.now()
-            this.state.stimulus.exitInitialX = this.state.stimulus.x
-            this.state.stimulus.exitInitialY = this.state.stimulus.y
-            this.state.stimulus.exitInitialWidth = this.state.stimulus.width
-            this.state.stimulus.exitInitialHeight = this.state.stimulus.height
+            this.startStimulusExit("catch")
             const threshold = this.getEffectiveThreshold()
             const trialMaxRT = this.state.maxRT || 2 * this.state.medianRT
             const correct =
@@ -756,12 +746,9 @@ const level2 = {
             if (!correct) {
                 const nowISO = new Date().toISOString()
                 // Error penalty: -minScore/2
-                try {
-                    this.assets.soundError.currentTime = 0
-                    this.assets.soundError.play()
-                } catch (e) {}
+                DoggoNogoShared.safePlay(this.assets.soundError)
                 this.finishTrial({
-                    type: "error",
+                    type: TrialTypes.ERROR,
                     points: -this.params.minScore / 2,
                     includeInMedian: false,
                     timestamp: nowISO,
@@ -774,12 +761,9 @@ const level2 = {
             if (reactionTime > threshold) {
                 const include = reactionTime <= trialMaxRT
                 const nowISO = new Date().toISOString()
-                try {
-                    this.assets.soundSlow.currentTime = 0
-                    this.assets.soundSlow.play()
-                } catch (e) {}
+                DoggoNogoShared.safePlay(this.assets.soundSlow)
                 this.finishTrial({
-                    type: "slow",
+                    type: TrialTypes.SLOW,
                     // Slow correct response award: +minScore/2
                     points: this.params.minScore / 2,
                     rt: reactionTime,
@@ -798,12 +782,9 @@ const level2 = {
             const points = this.params.minScore + nRT * (this.params.maxScore - this.params.minScore)
             this.jump(reactionTime)
             const nowISO = new Date().toISOString()
-            try {
-                this.assets.soundFast.currentTime = 0
-                this.assets.soundFast.play()
-            } catch (e) {}
+            DoggoNogoShared.safePlay(this.assets.soundFast)
             this.finishTrial({
-                type: "fast",
+                type: TrialTypes.FAST,
                 points,
                 rt: reactionTime,
                 includeInMedian: true,
@@ -821,6 +802,40 @@ const level2 = {
         this.state.scoreTextTimeout = setTimeout(() => {
             this.state.scoreTextVisible = false
         }, 1000)
+    },
+    clearTrialTimers: function () {
+        if (typeof DoggoNogoShared !== "undefined") DoggoNogoShared.clearTrialTimers(this.state)
+        else {
+            if (this.state.pendingStimulusTimeoutId) {
+                clearTimeout(this.state.pendingStimulusTimeoutId)
+                this.state.pendingStimulusTimeoutId = null
+            }
+            if (this.state.currentTrialTimeoutId) {
+                clearTimeout(this.state.currentTrialTimeoutId)
+                this.state.currentTrialTimeoutId = null
+            }
+        }
+    },
+    startStimulusExit: function (type) {
+        if (typeof DoggoNogoShared !== "undefined") DoggoNogoShared.startStimulusExit(this.state, () => this.now(), type)
+        else {
+            const stim = this.state.stimulus
+            stim.visible = false
+            stim.exiting = true
+            stim.exitType = type
+            stim.exitStartTime = this.now()
+            stim.exitInitialX = stim.x
+            stim.exitInitialY = stim.y
+            stim.exitInitialWidth = stim.width
+            stim.exitInitialHeight = stim.height
+        }
+    },
+    isResponseKey: function (key) {
+        return key === "ArrowLeft" || key === "ArrowRight"
+    },
+    getTrialTypeLabel: function (type) {
+        if (typeof DoggoNogoShared !== "undefined") return DoggoNogoShared.getTrialTypeLabel(type)
+        return type === "timeout" ? "Timeout" : type.charAt(0).toUpperCase() + type.slice(1)
     },
 }
 
