@@ -92,14 +92,12 @@ const level1 = {
         // Parameters
         trialsNumber: 6, // The (theoretical) number of valid trials for the entire level
         minTrialsPerPhase: 4, // Minimum (theoretical) trials the player should effectively complete per phase
-        // minISI: 1000, // Minimum Inter-Stimulus Interval
-        // maxISI: 3000, // Maximum Inter-Stimulus Interval
-        minISI: 100, // For testing purposes
-        maxISI: 300, // For testing purposes
+        minISI: 1000, // Minimum Inter-Stimulus Interval
+        maxISI: 3000, // Maximum Inter-Stimulus Interval
         minScore: 100, // Minimum score awarded for a fast trial
         maxScore: 200, // Maximum score awarded for a fast trial
         // RT thresholds and bounds
-        gameDifficulty: 0.75, // dimensionless; effective threshold = medianRT / gameDifficulty
+        gameDifficulty: 1, // dimensionless; effective threshold = medianRT / gameDifficulty
 
         // IES population parameters (for Z-scoring)
         populationMean: 300,
@@ -1206,6 +1204,22 @@ const level1 = {
     handleKeyDown: function (e) {
         // Ignore input unless actively playing
         if (this.state.gameState !== "playing") return
+
+        // Dev/Test shortcut: Press 's' to skip the remainder of the level (fast-forward to end)
+        if (e.key === "s" || e.key === "S") {
+            // End immediately without awarding extra points
+            // Clean up timers and go straight to end screen
+            if (this.state.pendingStimulusTimeoutId) {
+                clearTimeout(this.state.pendingStimulusTimeoutId)
+                this.state.pendingStimulusTimeoutId = null
+            }
+            if (this.state.currentTrialTimeoutId) {
+                clearTimeout(this.state.currentTrialTimeoutId)
+                this.state.currentTrialTimeoutId = null
+            }
+            this.endLevel()
+            return
+        }
 
         // During breaks, only SPACE resumes (when ready)
         if (this.state.inBreak) {

@@ -46,6 +46,7 @@
         <!-- Level-specific game logic -->
         <script src="levels/level1.js"></script>
         <script src="levels/level1_intro.js"></script>
+        <script src="levels/level2.js"></script>
         <!-- Main game manager -->
         <script>
             // This script is the entry point for the standalone game.
@@ -81,19 +82,44 @@
                 sizeCanvas()
             })
 
-            // The DoggoNogoEngine, DoggoNogoUI, and level1 objects are expected to be available globally.
-            if (canvas && typeof DoggoNogoEngine !== "undefined" && typeof level1 !== "undefined" && typeof DoggoNogoUI !== "undefined") {
+            // The DoggoNogoEngine, DoggoNogoUI, and level objects are expected to be available globally.
+            function runLevel1() {
                 DoggoNogoEngine.run(canvas, level1, {
                     assetBasePath: "assets/",
                     introSequence: typeof level1IntroSequence !== "undefined" ? level1IntroSequence : null,
-                    onFinish: (state) => {
-                        console.log("Game finished. Final state:", state)
-                        // The score screen is already shown by the engine.
-                        // We could add a "Play Again" button here if desired.
+                    continueHint: "Press SPACE to continue",
+                    onFinish: () => {
+                        const proceed = (e) => {
+                            if (e.code === "Space") {
+                                document.removeEventListener("keydown", proceed)
+                                runLevel2()
+                            }
+                        }
+                        document.addEventListener("keydown", proceed)
                     },
                 })
+            }
+
+            function runLevel2() {
+                if (typeof level2 === "undefined") {
+                    console.error("Level 2 script not loaded.")
+                    return
+                }
+                DoggoNogoEngine.run(canvas, level2, {
+                    assetBasePath: "assets/",
+                    skipCover: true, // start directly at level 2 instruction screen
+                    continueHint: "Press SPACE to finish",
+                    onFinish: (state) => {
+                        console.log("All levels finished. Final state level2:", state)
+                        // Optionally wait for SPACE to clear or restart
+                    },
+                })
+            }
+
+            if (canvas && typeof DoggoNogoEngine !== "undefined" && typeof level1 !== "undefined" && typeof DoggoNogoUI !== "undefined") {
+                runLevel1()
             } else {
-                console.error("Could not start the game. Ensure canvas, engine, UI, and level scripts are loaded.")
+                console.error("Could not start level 1. Ensure canvas, engine, UI, and level scripts are loaded.")
             }
         </script>
     </body>

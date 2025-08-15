@@ -38,6 +38,17 @@
                     "level1/sound_intro_dogwhining.mp3",
                 ],
             },
+            // Level 2 currently has no audio and no feedback images; list only needed images
+            level2: {
+                images: [
+                    "level2/player_1.png",
+                    "level2/player_2.png",
+                    "level2/player_3.png",
+                    "level2/stimulus_yellow.png",
+                    "level2/background.png",
+                ],
+                audio: [],
+            },
         }
     }
     function normalizeBasePath(p) {
@@ -76,6 +87,14 @@
             audio: manifest.level1.audio.concat(manifest.shared ? manifest.shared.audio : []),
         }
     }
+    function getDefaultLevel2Lists(assetBasePath) {
+        const manifest = global.DoggoNogoAssets
+        if (!manifest || !manifest.level2) return { images: [], audio: [] }
+        return {
+            images: manifest.level2.images.slice(),
+            audio: manifest.shared ? manifest.shared.audio.slice() : [], // only shared audio (level2 silent gameplay)
+        }
+    }
 
     const Integration = {
         // Preload images/audio to reduce in-game stalls. Pass a base path and asset lists.
@@ -104,6 +123,8 @@
             assetBasePath = "game/assets/",
             levelGetter = () => (typeof level1 !== "undefined" ? level1 : undefined),
             trialsNumber,
+            introSequence = null,
+            skipCover = false,
         } = {}) {
             return {
                 type: jsPsychCallFunction,
@@ -142,7 +163,8 @@
                         assetBasePath: normalizeBasePath(assetBasePath),
                         levelParams: { trialsNumber },
                         continueHint: "Press SPACE to continue",
-                        introSequence: typeof level1IntroSequence !== "undefined" ? level1IntroSequence : null,
+                        introSequence,
+                        skipCover,
                         onFinish: (finalState) => {
                             // Data to be saved by jsPsych
                             const trialData = {
@@ -207,9 +229,49 @@
                     maintainAspect,
                     assetBasePath: base,
                     trialsNumber,
+                    introSequence: typeof level1IntroSequence !== "undefined" ? level1IntroSequence : null,
+                    skipCover: false,
                 })
             )
 
+            return trials
+        },
+        level2: function ({
+            includePreload = false,
+            assetBasePath = "game/assets/",
+            preloadImages,
+            preloadAudio,
+            width,
+            height,
+            maintainAspect = true,
+            trialsNumber,
+        } = {}) {
+            const trials = []
+            const base = normalizeBasePath(assetBasePath)
+            const defaults = getDefaultLevel2Lists(base)
+            const defaultImages = defaults.images
+            const defaultAudio = defaults.audio // currently empty
+            if (includePreload) {
+                trials.push(
+                    this.createPreloadTrial({
+                        assetBasePath: base,
+                        images: preloadImages || defaultImages,
+                        audio: preloadAudio || defaultAudio,
+                    })
+                )
+            }
+            trials.push(
+                this.createGameTrial({
+                    width,
+                    height,
+                    maintainAspect,
+                    assetBasePath: base,
+                    trialsNumber,
+                    levelGetter: () => (typeof level2 !== "undefined" ? level2 : undefined),
+                    introSequence: null, // no intro for level2 (can add later)
+                    skipCover: true, // skip start/cover for subsequent level
+                })
+            )
             return trials
         },
     }

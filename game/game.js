@@ -54,8 +54,10 @@
                 const progress = Math.min((timestamp - startTime) / duration, 1)
                 const currentDisplayNumber = Math.floor(progress * quantile)
 
-                // Clear canvas
+                // Always white background
                 ctx.clearRect(0, 0, canvas.width, canvas.height)
+                ctx.fillStyle = "#ffffff"
+                ctx.fillRect(0, 0, canvas.width, canvas.height)
 
                 // 1. "Level Complete" at the top
                 ctx.textAlign = "center"

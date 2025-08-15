@@ -15,7 +15,7 @@
          * @returns {Promise<void>}
          */
         run: async function (canvas, level, options = {}) {
-            const { onFinish, levelParams, introSequence } = options
+            const { onFinish, levelParams, introSequence, skipCover } = options
             this.canvas = canvas
             this.ctx = canvas.getContext("2d")
             this.level = level
@@ -35,8 +35,10 @@
                 // 1. Load assets
                 await this.level.load(this.canvas, { assetBasePath: options.assetBasePath })
 
-                // 1.5 Cover screen to secure user interaction for audio autoplay policies
-                await this.showCoverScreen()
+                // 1.5 Cover screen (optional skip for chained levels)
+                if (!skipCover) {
+                    await this.showCoverScreen()
+                }
 
                 // Run intro if it exists (now after a user interaction)
                 if (introSequence && typeof IntroRunner !== "undefined") {
@@ -109,7 +111,7 @@
 
                         DoggoNogoUI.showScoreScreen(this.canvas, quantile, {
                             hint: options.continueHint,
-                            playerSprite: this.level.assets.imgPlayer3,
+                            playerSprite: this.level.assets.imgPlayer3 || this.level.assets.imgPlayer,
                         })
                     }
                     if (onFinish) {
