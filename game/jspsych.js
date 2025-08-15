@@ -268,7 +268,7 @@
                     assetBasePath: base,
                     trialsNumber,
                     levelGetter: () => (typeof level2 !== "undefined" ? level2 : undefined),
-                    introSequence: null, // no intro for level2 (can add later)
+                    introSequence: typeof level2IntroSequence !== "undefined" ? level2IntroSequence : null,
                     skipCover: true, // skip start/cover for subsequent level
                 })
             )

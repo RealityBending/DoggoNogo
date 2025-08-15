@@ -33,7 +33,7 @@ const level2 = {
         return Date.now()
     },
     params: {
-        trialsNumber: 15,
+        trialsNumber: 18,
         minTrialsPerPhase: 4,
         minISI: 1000,
         maxISI: 3000,
@@ -78,6 +78,7 @@ const level2 = {
         particles: [],
         data: [],
         player: { x: 0, y: 0, width: 100, height: 100, velocityY: 0, jumping: false, originalY: 0 },
+        playerFacing: "left", // 'left' | 'right' for sprite mirroring
         stimulus: {
             x: 0,
             y: 0,
@@ -378,13 +379,20 @@ const level2 = {
         this.state.ctx.fillText(this.state.scoreText, textX, textY)
     },
     drawPlayer: function () {
-        this.state.ctx.drawImage(
-            this.assets.imgPlayer,
-            this.state.player.x,
-            this.state.player.y,
-            this.state.player.width,
-            this.state.player.height
-        )
+        const ctx = this.state.ctx
+        const p = this.state.player
+        const img = this.assets.imgPlayer
+        if (!img) return
+        if (this.state.playerFacing === "right") {
+            ctx.save()
+            // Mirror around player's vertical center line
+            ctx.translate(p.x + p.width / 2, 0)
+            ctx.scale(-1, 1)
+            ctx.drawImage(img, -p.width / 2, p.y, p.width, p.height)
+            ctx.restore()
+        } else {
+            ctx.drawImage(img, p.x, p.y, p.width, p.height)
+        }
     },
     drawBreakOverlay: function () {
         const message = "Press SPACE to continue"
@@ -747,6 +755,10 @@ const level2 = {
                 const nowISO = new Date().toISOString()
                 // Error penalty: -minScore/2
                 DoggoNogoShared.safePlay(this.assets.soundError)
+                // Override exit style to mimic timeout sideways drift
+                if (this.state.stimulus.exiting) {
+                    this.state.stimulus.exitType = "timeout"
+                }
                 this.finishTrial({
                     type: TrialTypes.ERROR,
                     points: -this.params.minScore / 2,
@@ -758,6 +770,8 @@ const level2 = {
                 })
                 return
             }
+            // Update facing based on stimulus side on any correct key (fast or slow)
+            this.state.playerFacing = this.state.stimulus.side === "right" ? "right" : "left"
             if (reactionTime > threshold) {
                 const include = reactionTime <= trialMaxRT
                 const nowISO = new Date().toISOString()

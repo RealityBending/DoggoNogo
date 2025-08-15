@@ -55,7 +55,7 @@
                         this.level.assets,
                         typeof DoggoNogoIntroAssets !== "undefined" ? DoggoNogoIntroAssets : {}
                     )
-                    await IntroRunner.run(this.canvas, introSequence, mergedAssets)
+                    await IntroRunner.run(this.canvas, introSequence, mergedAssets, { assetBasePath: options.assetBasePath || "" })
                 }
 
                 // 2. Show instruction screen and wait for user to start

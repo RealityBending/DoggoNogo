@@ -8,6 +8,15 @@
  *   animation: 'reveal' (fade in over duration) | 'appear' (instant). Applies to image/text only.
  *   duration: ONLY used when (a) type == 'wait' (wait length in ms) OR (b) animation == 'reveal' (fade duration).
  *             All other temporal spacing must be expressed with explicit wait steps. (No hidden holding.)
+ *   Image sizing:
+ *       height: number or string percentage ("35%") always interpreted as percent of canvas height.
+ *               If number provided, 40 -> 40% canvas height. Values clamped to [1,100].
+ *       If omitted: defaults to 40% canvas height.
+ *   Image positioning:
+ *       y: number (percent of canvas height for image centre) to vertically position sprites.
+ *   Text reveal background fill (anti-ghosting):
+ *       For animation='reveal', optional background: "#000" (or color string) repaints each frame
+ *       during fade to avoid semi-transparent accumulation (useful for large text like title).
  *
  * Semantics:
  *  - "text": draws centered text (optionally with reveal fade). Appears instantly unless animation='reveal'. Add a following wait to keep it on screen.
@@ -32,20 +41,20 @@ const level1IntroSequence = [
         animation: "appear",
     },
     { type: "wait", duration: 3000 },
-    { type: "sound", what: "soundIntroMetalDoor" },
-    { type: "image", what: "imgIntroBackground", animation: "reveal", duration: 1000 },
+    { type: "sound", what: "level1/sound_intro_metaldoor.mp3" },
+    { type: "image", what: "level1/intro_background.png", animation: "reveal", duration: 1000 },
     { type: "wait", duration: 1500 },
     { type: "text", what: "But during your last raid, you heard something...", animation: "appear" },
     { type: "wait", duration: 1500 },
-    { type: "sound", what: "soundIntroDogWhining" },
+    { type: "sound", what: "level1/sound_intro_dogwhining.mp3" },
     { type: "wait", duration: 1500 },
-    { type: "image", what: "imgPlayer1", animation: "reveal", duration: 800 },
+    { type: "image", what: "level1/player_1.png", animation: "reveal", duration: 800 },
     { type: "wait", duration: 1000 },
-    { type: "image", what: "imgIntroBackground", animation: "appear" },
-    { type: "image", what: "imgPlayer1", animation: "appear" },
+    { type: "image", what: "level1/intro_background.png", animation: "appear" },
+    { type: "image", what: "level1/player_1.png", animation: "appear" },
     { type: "text", what: "You decide to take him home, and name him...", animation: "appear", y: 80 },
     { type: "wait", duration: 2000 },
     { type: "fill", color: "black" },
-    { type: "text", what: "Doggo", animation: "reveal", duration: 1000, fontSize: 96 },
+    { type: "text", what: "Doggo", animation: "reveal", duration: 1000, fontSize: 96, background: "black" },
     { type: "wait", duration: 1000 },
 ]

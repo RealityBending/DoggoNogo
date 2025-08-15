@@ -45,17 +45,22 @@
          * @param {object} assets - The loaded assets object from the level.
          * @returns {Promise<void>} - A promise that resolves when the intro is complete.
          */
-        run: function (canvas, sequence, assets) {
+        run: function (canvas, sequence, assets, options) {
             return new Promise((resolve) => {
                 this.canvas = canvas
                 this.ctx = canvas.getContext("2d")
                 this.sequence = sequence
-                this.assets = assets
+                this.assets = assets || {}
+                this.assetBasePath = (options && options.assetBasePath) || ""
+                if (this.assetBasePath && !this.assetBasePath.endsWith("/")) this.assetBasePath += "/"
                 this.currentIndex = -1
                 this.resolve = resolve
                 this.finished = false
                 this.skipRequested = false
                 this.pendingTimeout = null
+                this.hasExplicitFill = false
+                this.currentSpriteHeightPercent = null
+                this.currentSpriteYPercent = null
                 // key handler to skip entire intro (simplest implementation)
                 this.boundKeyHandler = (e) => {
                     if (e.key && e.key.toLowerCase() === "s") {
@@ -96,23 +101,53 @@
                     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height)
                     this.currentBackground = null
                     this.currentSprite = null
+                    this.hasExplicitFill = true
                     // no duration effect (immediate)
                     break
                 }
                 case "image": {
-                    const img = this.assets[step.what]
+                    let img = this.assets[step.what]
                     if (!img) {
-                        console.warn("Intro image asset not found:", step.what)
-                        break
+                        // Attempt dynamic lazy load by filename (allows using raw filenames like 'intro_eyes.png')
+                        img = new Image()
+                        let src = step.what
+                        // Prepend base path for relative paths (no protocol, not root '/', and not already starting with base)
+                        if (!/^https?:\/\//i.test(src) && !src.startsWith("/") && this.assetBasePath) {
+                            src = this.assetBasePath + src
+                        }
+                        img.onload = () => {
+                            this.assets[step.what] = img
+                            // Re-run this step now that image exists
+                            this.processStep(step)
+                        }
+                        img.onerror = () => {
+                            console.warn("Intro image asset load failed:", step.what, src)
+                            this.nextStep()
+                        }
+                        img.src = src
+                        return // Wait for async load; do not schedule next yet
                     }
                     const isBg =
                         img && img.naturalWidth && img.naturalHeight
                             ? Math.abs(img.naturalWidth / img.naturalHeight - this.canvas.width / this.canvas.height) < 0.2
                             : true
                     const fadeMs = animation === "reveal" ? step.duration || 1000 : 0
+                    // Single height parameter: interpreted as percent of canvas height.
+                    let customHeightPercent = null
+                    if (typeof step.height === "number" && !isNaN(step.height)) {
+                        customHeightPercent = step.height
+                    } else if (typeof step.height === "string" && /%$/.test(step.height)) {
+                        const v = parseFloat(step.height)
+                        if (!isNaN(v)) customHeightPercent = v
+                    }
+                    const customYPercent = typeof step.y === "number" ? step.y : null
                     if (fadeMs === 0) {
                         if (isBg) this.currentBackground = img
-                        else this.currentSprite = img
+                        else {
+                            this.currentSprite = img
+                            this.currentSpriteHeightPercent = customHeightPercent
+                            this.currentSpriteYPercent = customYPercent
+                        }
                         this.redrawPersistent()
                     } else {
                         let startTs = null
@@ -124,12 +159,16 @@
                             this.ctx.save()
                             this.ctx.globalAlpha = progress
                             if (isBg) this.drawBackground(img)
-                            else this.drawSprite(img)
+                            else this.drawSprite(img, customHeightPercent, customYPercent)
                             this.ctx.restore()
                             if (progress < 1) requestAnimationFrame(animate)
                             else {
                                 if (isBg) this.currentBackground = img
-                                else this.currentSprite = img
+                                else {
+                                    this.currentSprite = img
+                                    this.currentSpriteHeightPercent = customHeightPercent
+                                    this.currentSpriteYPercent = customYPercent
+                                }
                             }
                         }
                         requestAnimationFrame(animate)
@@ -140,7 +179,8 @@
                 case "text": {
                     const fadeMs = animation === "reveal" ? step.duration || 600 : 0
                     if (fadeMs === 0) {
-                        this.redrawPersistent()
+                        // Do not implicitly clear background; only redraw background layers if present.
+                        this.redrawPersistent(false)
                         this.drawText(step.what, step.fontSize, false, step.color, step.y)
                     } else {
                         let startTs = null
@@ -148,7 +188,16 @@
                             if (this.skipRequested || this.finished) return
                             if (!startTs) startTs = ts
                             const progress = Math.min(1, (ts - startTs) / fadeMs)
-                            this.redrawPersistent()
+                            // Optional background fill during reveal to avoid repeated overdraw artifacts
+                            if (step.background) {
+                                this.ctx.fillStyle = step.background
+                                this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height)
+                                if (this.currentBackground) this.drawBackground(this.currentBackground)
+                                if (this.currentSprite)
+                                    this.drawSprite(this.currentSprite, this.currentSpriteHeightPercent, this.currentSpriteYPercent)
+                            } else {
+                                this.redrawPersistent(false)
+                            }
                             this.ctx.save()
                             this.ctx.globalAlpha = progress
                             this.drawText(step.what, step.fontSize, false, step.color, step.y)
@@ -162,13 +211,25 @@
                     break
                 }
                 case "sound": {
-                    const snd = this.assets[step.what]
-                    if (snd)
+                    let snd = this.assets[step.what]
+                    if (!snd) {
+                        // Lazy load by filename if not present
+                        snd = new Audio()
+                        let src = step.what
+                        if (!/^https?:\/\//i.test(src) && !src.startsWith("/") && this.assetBasePath) {
+                            src = this.assetBasePath + src
+                        }
+                        snd.oncanplaythrough = () => snd.play().catch(() => {})
+                        snd.onerror = () => console.warn("Intro sound load failed:", step.what, src)
+                        snd.src = src
+                        this.assets[step.what] = snd
+                    } else {
                         try {
                             snd.play()
                         } catch (e) {
                             console.warn("Sound play failed", step.what, e)
                         }
+                    }
                     break
                 }
                 case "wait": {
@@ -213,15 +274,16 @@
                 this.boundKeyHandler = null
             }
         },
-        redrawPersistent: function () {
+        redrawPersistent: function (allowImplicitFill = true) {
             if (this.currentBackground) {
                 this.drawBackground(this.currentBackground)
-            } else {
+            } else if (allowImplicitFill && !this.hasExplicitFill) {
+                // Only auto-fill black before any explicit fill has happened
                 this.ctx.fillStyle = "black"
                 this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height)
             }
             if (this.currentSprite) {
-                this.drawSprite(this.currentSprite)
+                this.drawSprite(this.currentSprite, this.currentSpriteHeightPercent, this.currentSpriteYPercent)
             }
         },
 
@@ -249,13 +311,19 @@
             }
         },
 
-        drawSprite: function (img) {
+        drawSprite: function (img, heightPercent, yPercentOverride) {
             if (img && img.complete) {
                 const aspectRatio = img.naturalWidth / img.naturalHeight
-                const height = this.canvas.height * 0.4
+                let height = this.canvas.height * 0.4 // default 40%
+                if (typeof heightPercent === "number" && !isNaN(heightPercent)) {
+                    height = this.canvas.height * (Math.max(1, Math.min(100, heightPercent)) / 100)
+                }
                 const width = height * aspectRatio
                 const x = this.canvas.width / 2 - width / 2
-                const y = this.canvas.height / 2 - height / 2
+                let y = this.canvas.height / 2 - height / 2
+                if (typeof yPercentOverride === "number" && !isNaN(yPercentOverride)) {
+                    y = this.canvas.height * (yPercentOverride / 100) - height / 2
+                }
                 this.ctx.drawImage(img, x, y, width, height)
             }
         },
