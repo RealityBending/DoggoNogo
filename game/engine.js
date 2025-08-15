@@ -136,9 +136,18 @@
          */
         waitForStart: function () {
             return new Promise((resolve) => {
+                const levelName = (this.level && this.level.name) || ""
+                const isLevel2 = /level ?2/i.test(levelName) || (this.level && this.level === window.level2)
                 const startHandler = (e) => {
-                    if (e.key === "ArrowDown") {
+                    if ((!isLevel2 && e.key === "ArrowDown") || (isLevel2 && (e.key === "ArrowLeft" || e.key === "ArrowRight"))) {
                         document.removeEventListener("keydown", startHandler)
+                        // Play start sound if available on the level assets
+                        if (this.level && this.level.assets && this.level.assets.soundStart) {
+                            try {
+                                this.level.assets.soundStart.currentTime = 0
+                                this.level.assets.soundStart.play()
+                            } catch (e2) {}
+                        }
                         resolve()
                     }
                 }

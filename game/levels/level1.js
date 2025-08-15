@@ -90,7 +90,7 @@ const level1 = {
     },
     params: {
         // Parameters
-        trialsNumber: 6, // The (theoretical) number of valid trials for the entire level
+        trialsNumber: 18, // The (theoretical) number of valid trials for the entire level
         minTrialsPerPhase: 4, // Minimum (theoretical) trials the player should effectively complete per phase
         minISI: 1000, // Minimum Inter-Stimulus Interval
         maxISI: 3000, // Maximum Inter-Stimulus Interval
@@ -110,6 +110,7 @@ const level1 = {
         // Animations and size
         stimulusFallDistance: 0.05, // % of canvas height
         playerHeight: 0.2, // % of canvas height
+        playerY: 0.5, // Initial vertical position as proportion of canvas height (player centered vertically at 0.5)
         stimulusHeight: 0.1, // % of canvas height
         feedbackBubbleHeight: 0.2, // % of canvas height
     },
@@ -133,6 +134,7 @@ const level1 = {
         soundLevelUp: new Audio(),
         soundSlow: new Audio(),
         soundEarly: new Audio(),
+        soundStart: new Audio(),
 
         // (Intro assets moved to intro_assets.js)
         // Cover screen assets (shared)
@@ -264,6 +266,7 @@ const level1 = {
         this.assets.soundSlow.src = base + "level1/sound_slow.mp3"
         this.assets.soundEarly.src = base + "level1/sound_early.mp3"
         this.assets.soundEvolve.src = base + "level1/sound_evolve.mp3"
+        this.assets.soundStart.src = base + "sound_start.mp3"
 
         // Generic assets (shared across levels)
         this.assets.soundLevelUp.src = base + "sound_levelup.mp3"
@@ -290,6 +293,7 @@ const level1 = {
             this.assets.soundLevelUp,
             this.assets.soundSlow,
             this.assets.soundEarly,
+            this.assets.soundStart,
             // Cover assets
             this.assets.imgCover,
             this.assets.imgCoverText,
@@ -309,9 +313,10 @@ const level1 = {
         return Promise.all(promises).then(() => {
             // Now that images are loaded, we can calculate dimensions while preserving aspect ratio
             this.initializeDimensions(canvas)
-            // Center the player
+            // Place the player horizontally centered & vertically based on params.playerY (interpreted as center position)
             this.state.player.x = canvas.width / 2 - this.state.player.width / 2
-            this.state.player.y = canvas.height / 2 - this.state.player.height / 2
+            const centerY = canvas.height * (typeof this.params.playerY === "number" ? this.params.playerY : 0.5)
+            this.state.player.y = centerY - this.state.player.height / 2
             this.state.player.originalY = this.state.player.y
         })
     },
@@ -441,6 +446,11 @@ const level1 = {
 
         // Start the first trial
         this.assets.imgPlayer = this.assets.imgPlayer1
+        // Play start sound once when game proper begins
+        try {
+            this.assets.soundStart.currentTime = 0
+            this.assets.soundStart.play()
+        } catch (e) {}
         this.startNewTrial()
     },
 

@@ -13,6 +13,14 @@
  *  - stimulus_yellow.png (named imgStimulus)
  *
  * Keeps core gameplay (RT trials, phases, scoring, adaptive threshold).
+ *
+ * Scoring Rules (Level 2):
+ *  Correct Fast (RT <= threshold): + between minScore and maxScore (scaled by speed)
+ *  Correct Slow (RT > threshold but before timeout): + minScore/2
+ *  Error (wrong arrow key): - minScore/2
+ *  Early (key before stimulus shows): - minScore
+ *  Timeout (no response before maxRT): 0
+ * Only correct (fast or slow) trials feed the adaptive median RT.
  */
 
 const level2 = {
@@ -22,7 +30,7 @@ const level2 = {
         return Date.now()
     },
     params: {
-        trialsNumber: 6,
+        trialsNumber: 15,
         minTrialsPerPhase: 4,
         minISI: 1000,
         maxISI: 3000,
@@ -35,7 +43,8 @@ const level2 = {
         maxJumpStrength: -8,
         minJumpStrength: -1,
         stimulusFallDistance: 0.05,
-        playerHeight: 0.2,
+        playerHeight: 0.4,
+        playerY: 0.7,
         stimulusHeight: 0.1,
     },
     assets: {
@@ -43,8 +52,17 @@ const level2 = {
         imgPlayer1: new Image(),
         imgPlayer2: new Image(),
         imgPlayer3: new Image(),
+        // Yellow stimulus keeps legacy name imgStimulus for backwards compatibility
         imgStimulus: new Image(),
+        imgStimulusBlue: new Image(),
         imgBackground: new Image(),
+        soundEvolve: new Audio(),
+        soundLevelUp: new Audio(),
+        soundError: new Audio(),
+        soundFast: new Audio(),
+        soundSlow: new Audio(),
+        soundBackground: new Audio(),
+        soundStart: new Audio(),
         // Cover (reuse root-level assets if present)
         imgCover: new Image(),
         imgCoverText: new Image(),
@@ -72,6 +90,8 @@ const level2 = {
             initialY: 0,
             exitInitialWidth: 0,
             exitInitialHeight: 0,
+            side: null, // 'left' | 'right'
+            img: null,
         },
         startTime: 0,
         pendingStimulusTimeoutId: null,
@@ -112,31 +132,66 @@ const level2 = {
         this.assets.imgPlayer2.src = base + "level2/player_2.png"
         this.assets.imgPlayer3.src = base + "level2/player_3.png"
         this.assets.imgStimulus.src = base + "level2/stimulus_yellow.png"
+        this.assets.imgStimulusBlue.src = base + "level2/stimulus_blue.png"
         this.assets.imgBackground.src = base + "level2/background.png"
+        this.assets.soundEvolve.src = base + "level2/sound_evolve.mp3"
+        this.assets.soundLevelUp.src = base + "sound_levelup.mp3" // shared root-level sound
+        this.assets.soundError.src = base + "level2/sound_error.mp3"
+        this.assets.soundFast.src = base + "level2/sound_fast.mp3"
+        this.assets.soundSlow.src = base + "level2/sound_slow.mp3"
+        this.assets.soundBackground.src = base + "level2/Fishbone.mp3"
+        this.assets.soundStart.src = base + "sound_start.mp3"
         // Cover assets (same root names as level1)
         this.assets.imgCover.src = base + "cover1_noText.png"
         this.assets.imgCoverText.src = base + "text.png"
-        const refs = [
+        const assetRefs = [
+            // Images
             this.assets.imgPlayer1,
             this.assets.imgPlayer2,
             this.assets.imgPlayer3,
             this.assets.imgStimulus,
+            this.assets.imgStimulusBlue,
             this.assets.imgBackground,
             this.assets.imgCover,
             this.assets.imgCoverText,
+            // Audio
+            this.assets.soundBackground,
+            this.assets.soundError,
+            this.assets.soundFast,
+            this.assets.soundSlow,
+            this.assets.soundEvolve,
+            this.assets.soundLevelUp,
+            this.assets.soundStart,
         ]
         return Promise.all(
-            refs.map(
-                (img) =>
+            assetRefs.map(
+                (asset) =>
                     new Promise((res, rej) => {
-                        img.onload = res
-                        img.onerror = rej
+                        if (asset instanceof HTMLImageElement) {
+                            asset.onload = res
+                            asset.onerror = rej
+                        } else if (asset instanceof HTMLAudioElement) {
+                            const done = () => {
+                                // Remove listeners after first success
+                                asset.oncanplaythrough = null
+                                asset.onerror = null
+                                res()
+                            }
+                            asset.oncanplaythrough = done
+                            asset.onerror = (e) => rej(e)
+                            // Some browsers may not fire canplaythrough for very short files; fallback timeout
+                            setTimeout(() => {
+                                if (!asset.readyState || asset.readyState < 3) return // HAVE_FUTURE_DATA
+                                done()
+                            }, 2000)
+                        } else res()
                     })
             )
         ).then(() => {
             this.initializeDimensions(canvas)
             this.state.player.x = canvas.width / 2 - this.state.player.width / 2
-            this.state.player.y = canvas.height / 2 - this.state.player.height / 2
+            const centerY = canvas.height * (typeof this.params.playerY === "number" ? this.params.playerY : 0.5)
+            this.state.player.y = centerY - this.state.player.height / 2
             this.state.player.originalY = this.state.player.y
         })
     },
@@ -148,28 +203,51 @@ const level2 = {
         const bg = this.assets.imgBackground
         if (bg && bg.complete) ctx.drawImage(bg, 0, 0, canvas.width, canvas.height)
         else ctx.clearRect(0, 0, canvas.width, canvas.height)
-        ctx.fillStyle = "rgba(0,0,0,0.5)"
+        ctx.fillStyle = "rgba(0,0,0,0.55)"
         ctx.fillRect(0, 0, canvas.width, canvas.height)
         ctx.textAlign = "center"
         ctx.fillStyle = "white"
-        ctx.font = `bold ${scaleFontPx(48)}px Arial`
-        ctx.fillText("Level 2", canvas.width / 2, canvas.height * 0.2)
-        ctx.font = `${scaleFontPx(28)}px Arial`
-        const lines = ["Repeat the task as before.", "Press the DOWN arrow as fast as possible when the target appears."]
-        const lh = scaleFontPx(40)
-        const startY = canvas.height * 0.4
-        lines.forEach((l, i) => ctx.fillText(l, canvas.width / 2, startY + i * lh))
-        const stim = this.assets.imgStimulus
-        if (stim && stim.complete) {
-            const dH = Math.min(canvas.height * 0.18, stim.naturalHeight)
-            const aspect = stim.naturalWidth / stim.naturalHeight
-            const dW = dH * aspect
-            ctx.drawImage(stim, canvas.width / 2 - dW / 2, canvas.height * 0.6, dW, dH)
-        }
+        ctx.font = `bold ${scaleFontPx(50)}px Arial`
+        ctx.fillText("Level 2", canvas.width / 2, canvas.height * 0.18)
+        ctx.font = `${scaleFontPx(30)}px Arial`
+        const introLines = [
+            "NOGO is on the lookout for fish leftovers.",
+            "Help him catch the fish bones as fast as possible,",
+            "but be careful about the direction!",
+        ]
+        const lh = scaleFontPx(38)
+        const startY = canvas.height * 0.3
+        introLines.forEach((l, i) => ctx.fillText(l, canvas.width / 2, startY + i * lh))
+
+        // Draw both stimulus variants left and right with direction cues
+        const stimLeft = this.state.leftStimulusImg || this.assets.imgStimulus
+        const stimRight = this.state.rightStimulusImg || this.assets.imgStimulusBlue || this.assets.imgStimulus
+        const stimH = Math.min(canvas.height * 0.18, stimLeft.naturalHeight || 100)
+        const stimAspectL = (stimLeft.naturalWidth || 100) / (stimLeft.naturalHeight || 100)
+        const stimAspectR = (stimRight.naturalWidth || 100) / (stimRight.naturalHeight || 100)
+        const stimWLeft = stimH * stimAspectL
+        const stimWRight = stimH * stimAspectR
+        const midY = canvas.height * 0.58
+        const leftXCenter = canvas.width * 0.25
+        const rightXCenter = canvas.width * 0.75
+        // Left (draw normal)
+        ctx.drawImage(stimLeft, leftXCenter - stimWLeft / 2, midY - stimH / 2, stimWLeft, stimH)
+        // Right (mirrored)
+        ctx.save()
+        ctx.translate(rightXCenter + stimWRight / 2, 0)
+        ctx.scale(-1, 1)
+        ctx.drawImage(stimRight, 0, midY - stimH / 2, stimWRight, stimH)
+        ctx.restore()
+
+        ctx.font = `${scaleFontPx(26)}px Arial`
+        ctx.fillStyle = "#FFD54F"
+        ctx.fillText("Press LEFT for left-pointing fishbone", leftXCenter, midY + stimH * 0.7)
+        ctx.fillText("Press RIGHT for right-pointing fishbone", rightXCenter, midY + stimH * 0.7)
+
         setTimeout(() => {
-            ctx.font = `bold ${scaleFontPx(32)}px Arial`
-            ctx.fillStyle = "yellow"
-            ctx.fillText("Press the DOWN arrow to start", canvas.width / 2, canvas.height * 0.85)
+            ctx.font = `bold ${scaleFontPx(34)}px Arial`
+            ctx.fillStyle = "#FFEE58"
+            ctx.fillText("Press LEFT or RIGHT to start", canvas.width / 2, canvas.height * 0.88)
         }, 800)
     },
     start: function (canvas, endGameCallback, options) {
@@ -195,7 +273,7 @@ const level2 = {
         this.state.phaseRequiredScores[0] = this.computePhaseTarget(0)
         if (this.state.pendingStimulusTimeoutId) clearTimeout(this.state.pendingStimulusTimeoutId)
         if (this.state.currentTrialTimeoutId) clearTimeout(this.state.currentTrialTimeoutId)
-        // No music playback for level2
+        // (Re)initialize sounds
         this.boundKeyDownHandler = this.handleKeyDown.bind(this)
         document.addEventListener("keydown", this.boundKeyDownHandler)
         this.boundClickHandler = this.handleClick.bind(this)
@@ -205,6 +283,20 @@ const level2 = {
             window.getLevel2Data = () => this.state.data
         }
         this.assets.imgPlayer = this.assets.imgPlayer1
+        // Decide which color goes on which side ONCE per level start
+        if (Math.random() < 0.5) {
+            this.state.leftStimulusImg = this.assets.imgStimulus
+            this.state.rightStimulusImg = this.assets.imgStimulusBlue
+        } else {
+            this.state.leftStimulusImg = this.assets.imgStimulusBlue
+            this.state.rightStimulusImg = this.assets.imgStimulus
+        }
+        // Start background music (simple HTMLAudio loop, same as level1)
+        try {
+            this.assets.soundBackground.loop = true
+            // Do not forcibly reset currentTime to preserve seamless carry if already loaded (match level1)
+            if (this.assets.soundBackground.paused) this.assets.soundBackground.play()
+        } catch (e) {}
         this.startNewTrial()
     },
     update: function () {
@@ -217,16 +309,7 @@ const level2 = {
                 this.state.player.velocityY = 0
             }
         }
-        if (this.state.stimulus.visible && !this.state.stimulus.exiting) {
-            const elapsed = this.now() - this.state.startTime
-            const threshold = this.getEffectiveThreshold()
-            if (elapsed < threshold) {
-                const prog = elapsed / threshold
-                this.state.stimulus.y = this.state.stimulus.initialY + this.params.stimulusFallDistancePx * prog
-            } else {
-                this.state.stimulus.y = this.state.stimulus.initialY + this.params.stimulusFallDistancePx
-            }
-        }
+        // Stimulus no longer moves vertically; fixed Y for both sides.
         if (this.state.stimulus.exiting) {
             const elapsed = this.now() - this.state.stimulus.exitStartTime
             if (elapsed >= this.state.stimulus.exitDuration) this.state.stimulus.exiting = false
@@ -316,7 +399,7 @@ const level2 = {
             this.state.ctx.fillStyle = "white"
             this.state.ctx.font = `${this.state.canvas.height * 0.053}px Arial`
             this.state.ctx.textAlign = "center"
-            this.state.ctx.fillText(message, this.state.canvas.width / 2, (2.5 / 3) * this.state.canvas.height)
+            this.state.ctx.fillText(message, this.state.canvas.width / 2, (1 / 3) * this.state.canvas.height)
         }
         this.state.ctx.restore()
     },
@@ -352,38 +435,47 @@ const level2 = {
         ctx.restore()
     },
     drawStimulus: function () {
-        if (this.state.stimulus.exiting) {
-            const elapsed = this.now() - this.state.stimulus.exitStartTime
-            const prog = Math.min(elapsed / this.state.stimulus.exitDuration, 1)
-            let x = this.state.stimulus.exitInitialX
-            let y = this.state.stimulus.exitInitialY
-            let w = this.state.stimulus.exitInitialWidth
-            let h = this.state.stimulus.exitInitialHeight
-            if (this.state.stimulus.exitType === "catch") {
+        const stim = this.state.stimulus
+        if (!stim.visible && !stim.exiting) return
+        const img = stim.img || this.assets.imgStimulus
+        const drawOne = (x, y, w, h, side, alpha = 1) => {
+            const ctx = this.state.ctx
+            ctx.save()
+            ctx.globalAlpha = alpha
+            if (side === "right") {
+                // Mirror horizontally around rectangle: translate to right edge then scale -1
+                ctx.translate(x + w, 0)
+                ctx.scale(-1, 1)
+                ctx.drawImage(img, 0, y, w, h)
+            } else ctx.drawImage(img, x, y, w, h)
+            ctx.restore()
+        }
+        if (stim.exiting) {
+            const elapsed = this.now() - stim.exitStartTime
+            const prog = Math.min(elapsed / stim.exitDuration, 1)
+            let x = stim.exitInitialX
+            let y = stim.exitInitialY
+            let w = stim.exitInitialWidth
+            let h = stim.exitInitialHeight
+            let alpha = 1
+            if (stim.exitType === "catch") {
                 const pcx = this.state.player.x + this.state.player.width / 2
                 const pcy = this.state.player.y + this.state.player.height / 2
-                const targetX = pcx - (this.state.stimulus.exitInitialWidth * (1 - prog)) / 2
-                const targetY = pcy - (this.state.stimulus.exitInitialHeight * (1 - prog)) / 2
+                const targetX = pcx - (stim.exitInitialWidth * (1 - prog)) / 2
+                const targetY = pcy - (stim.exitInitialHeight * (1 - prog)) / 2
                 x = x + (targetX - x) * prog
                 y = y + (targetY - y) * prog
                 w = w * (1 - prog)
                 h = h * (1 - prog)
-            } else if (this.state.stimulus.exitType === "timeout") {
+            } else if (stim.exitType === "timeout") {
                 const dist = this.state.canvas.width / 2
-                const dir = this.state.stimulus.exitInitialX > this.state.canvas.width / 2 ? 1 : -1
-                x = this.state.stimulus.exitInitialX + dir * dist * prog
-                this.state.ctx.globalAlpha = 1 - prog
+                const dir = stim.exitInitialX > this.state.canvas.width / 2 ? 1 : -1
+                x = stim.exitInitialX + dir * dist * prog
+                alpha = 1 - prog
             }
-            this.state.ctx.drawImage(this.assets.imgStimulus, x, y, w, h)
-            this.state.ctx.globalAlpha = 1
-        } else if (this.state.stimulus.visible) {
-            this.state.ctx.drawImage(
-                this.assets.imgStimulus,
-                this.state.stimulus.x,
-                this.state.stimulus.y,
-                this.state.stimulus.width,
-                this.state.stimulus.height
-            )
+            drawOne(x, y, w, h, stim.side, alpha)
+        } else if (stim.visible) {
+            drawOne(stim.x, stim.y, stim.width, stim.height, stim.side, 1)
         }
     },
     clearCanvas: function () {
@@ -394,10 +486,16 @@ const level2 = {
         if (this.state.pendingStimulusTimeoutId) clearTimeout(this.state.pendingStimulusTimeoutId)
         this.state.pendingStimulusTimeoutId = setTimeout(() => {
             this.state.pendingStimulusTimeoutId = null
-            this.state.stimulus.x = Math.random() * (this.state.canvas.width - this.state.stimulus.width)
-            const maxY = this.state.canvas.height - this.state.stimulus.height - this.params.stimulusFallDistancePx
-            this.state.stimulus.y = Math.random() * maxY
-            this.state.stimulus.initialY = this.state.stimulus.y
+            // Randomly choose left or right side (50/50)
+            const side = Math.random() < 0.5 ? "left" : "right"
+            const centerY = this.state.canvas.height * 0.5
+            const xPercent = side === "left" ? 0.25 : 0.75
+            const stim = this.state.stimulus
+            stim.side = side
+            stim.img = side === "left" ? this.state.leftStimulusImg : this.state.rightStimulusImg
+            stim.y = centerY - stim.height / 2
+            stim.initialY = stim.y
+            stim.x = this.state.canvas.width * xPercent - stim.width / 2
             this.state.stimulus.visible = true
             this.state.stimulus.exiting = false
             this.state.startTime = this.now()
@@ -433,7 +531,8 @@ const level2 = {
         if (typeof this.state.phaseFloorScore === "number") this.state.score = Math.max(this.state.score, this.state.phaseFloorScore)
         const sign = outcome.points > 0 ? "+" : ""
         this.showScoreFeedback(`${sign}${Math.round(outcome.points)}`)
-        if (outcome.includeInMedian && typeof outcome.rt === "number") {
+        // Only update median with correct (non-error) responses explicitly marked correct (fast/slow)
+        if (outcome.includeInMedian && typeof outcome.rt === "number" && (outcome.correct === undefined || outcome.correct === true)) {
             this.state.reactionTimes.push(outcome.rt)
             this.state.medianRT = this.computeMedian(this.state.reactionTimes)
         }
@@ -444,11 +543,14 @@ const level2 = {
                 TrialType: outcome.type === "timeout" ? "Timeout" : outcome.type.charAt(0).toUpperCase() + outcome.type.slice(1),
                 Time: outcome.timestamp,
                 Trial: this.state.trials,
-                RT: outcome.type === "early" || outcome.type === "timeout" ? "NA" : outcome.rt,
-                Error: outcome.type === "early" || outcome.type === "timeout" ? 1 : 0,
+                RT: outcome.type === "early" || outcome.type === "timeout" || outcome.type === "error" ? "NA" : outcome.rt,
+                Error: outcome.type === "early" || outcome.type === "timeout" || outcome.type === "error" ? 1 : 0,
                 Threshold: typeof outcome.thresholdUsed === "number" ? outcome.thresholdUsed : this.getEffectiveThreshold(),
                 Score: this.state.score,
                 ScoreChange: outcome.points,
+                StimulusSide: this.state.stimulus.side,
+                ResponseKey: outcome.responseKey || "NA",
+                Correct: typeof outcome.correct === "boolean" ? (outcome.correct ? 1 : 0) : "NA",
             })
         }
         this._checkForPhaseOrLevelEnd()
@@ -495,6 +597,10 @@ const level2 = {
             const cx = this.state.player.x + this.state.player.width / 2
             const cy = this.state.player.y + this.state.player.height / 2
             this.createRedSparkles(cx, cy, 40)
+            try {
+                this.assets.soundEvolve.currentTime = 0
+                this.assets.soundEvolve.play()
+            } catch (e) {}
             this.state.breakState = "effects" // still reuse state names for simplicity
         }
         if (this.state.breakState === "effects" && elapsed > 2000) {
@@ -561,6 +667,14 @@ const level2 = {
     },
     endLevel: function () {
         this.state.gameState = "done"
+        try {
+            this.assets.soundLevelUp.currentTime = 0
+            this.assets.soundLevelUp.play()
+        } catch (e) {}
+        try {
+            this.assets.soundBackground.pause()
+            this.assets.soundBackground.currentTime = 0
+        } catch (e) {}
         document.removeEventListener("keydown", this.boundKeyDownHandler)
         if (this.state.pendingStimulusTimeoutId) clearTimeout(this.state.pendingStimulusTimeoutId)
         if (this.state.currentTrialTimeoutId) clearTimeout(this.state.currentTrialTimeoutId)
@@ -595,6 +709,8 @@ const level2 = {
     },
     handleKeyDown: function (e) {
         if (this.state.gameState !== "playing") return
+        // If still on instruction screen, first LEFT/RIGHT only starts (plays start sound, no trial counted)
+        // (Instruction screen already exited by engine.waitForStart; no gating here)
         // Dev/Test shortcut: 's' to skip level immediately
         if (e.key === "s" || e.key === "S") {
             if (this.state.pendingStimulusTimeoutId) clearTimeout(this.state.pendingStimulusTimeoutId)
@@ -607,12 +723,17 @@ const level2 = {
             if (isSpace) this.resumeFromBreak()
             return
         }
-        if (e.key !== "ArrowDown") return
+        const isResponseKey = e.key === "ArrowLeft" || e.key === "ArrowRight"
+        if (!isResponseKey) return
         if (!this.state.stimulus.visible && !this.state.stimulus.exiting) {
             if (this.state.pendingStimulusTimeoutId) clearTimeout(this.state.pendingStimulusTimeoutId)
             if (this.state.currentTrialTimeoutId) clearTimeout(this.state.currentTrialTimeoutId)
             const nowISO = new Date().toISOString()
             const thresholdUsed = this.getEffectiveThreshold()
+            try {
+                this.assets.soundError.currentTime = 0
+                this.assets.soundError.play()
+            } catch (e) {}
             this.finishTrial({ type: "early", points: -this.params.minScore, includeInMedian: false, timestamp: nowISO, thresholdUsed })
             return
         }
@@ -629,18 +750,46 @@ const level2 = {
             this.state.stimulus.exitInitialHeight = this.state.stimulus.height
             const threshold = this.getEffectiveThreshold()
             const trialMaxRT = this.state.maxRT || 2 * this.state.medianRT
+            const correct =
+                (e.key === "ArrowLeft" && this.state.stimulus.side === "left") ||
+                (e.key === "ArrowRight" && this.state.stimulus.side === "right")
+            if (!correct) {
+                const nowISO = new Date().toISOString()
+                // Error penalty: -minScore/2
+                try {
+                    this.assets.soundError.currentTime = 0
+                    this.assets.soundError.play()
+                } catch (e) {}
+                this.finishTrial({
+                    type: "error",
+                    points: -this.params.minScore / 2,
+                    includeInMedian: false,
+                    timestamp: nowISO,
+                    thresholdUsed: threshold,
+                    responseKey: e.key,
+                    correct: false,
+                })
+                return
+            }
             if (reactionTime > threshold) {
                 const include = reactionTime <= trialMaxRT
                 const nowISO = new Date().toISOString()
+                try {
+                    this.assets.soundSlow.currentTime = 0
+                    this.assets.soundSlow.play()
+                } catch (e) {}
                 this.finishTrial({
                     type: "slow",
-                    points: 0,
+                    // Slow correct response award: +minScore/2
+                    points: this.params.minScore / 2,
                     rt: reactionTime,
                     includeInMedian: include,
                     timestamp: nowISO,
                     thresholdUsed: threshold,
                     stimulusX: this.state.stimulus.x,
                     stimulusY: this.state.stimulus.y,
+                    responseKey: e.key,
+                    correct: true,
                 })
                 return
             }
@@ -649,7 +798,20 @@ const level2 = {
             const points = this.params.minScore + nRT * (this.params.maxScore - this.params.minScore)
             this.jump(reactionTime)
             const nowISO = new Date().toISOString()
-            this.finishTrial({ type: "fast", points, rt: reactionTime, includeInMedian: true, timestamp: nowISO, thresholdUsed: threshold })
+            try {
+                this.assets.soundFast.currentTime = 0
+                this.assets.soundFast.play()
+            } catch (e) {}
+            this.finishTrial({
+                type: "fast",
+                points,
+                rt: reactionTime,
+                includeInMedian: true,
+                timestamp: nowISO,
+                thresholdUsed: threshold,
+                responseKey: e.key,
+                correct: true,
+            })
         }
     },
     showScoreFeedback: function (text) {
