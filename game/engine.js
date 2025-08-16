@@ -35,6 +35,17 @@
                 // 1. Load assets
                 await this.level.load(this.canvas, { assetBasePath: options.assetBasePath })
 
+                // Attach a resize listener that, after host resizes canvas, lets the level recompute layout.
+                // Host page is responsible for updating canvas width/height & devicePixelRatio transform.
+                if (!this._boundResizeHandler) {
+                    this._boundResizeHandler = () => {
+                        if (this.level && typeof this.level.handleResize === "function") {
+                            this.level.handleResize()
+                        }
+                    }
+                    window.addEventListener("resize", this._boundResizeHandler)
+                }
+
                 // 1.5 Cover screen (optional skip for chained levels)
                 if (!skipCover) {
                     await this.showCoverScreen()
@@ -171,6 +182,10 @@
             if (this.animationFrameId) {
                 cancelAnimationFrame(this.animationFrameId)
                 this.animationFrameId = null
+            }
+            if (this._boundResizeHandler) {
+                window.removeEventListener("resize", this._boundResizeHandler)
+                this._boundResizeHandler = null
             }
         },
     }

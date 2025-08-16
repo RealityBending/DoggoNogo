@@ -125,6 +125,8 @@ const level1 = {
         playerY: 0.5, // Initial vertical position as proportion of canvas height (player centered vertically at 0.5)
         stimulusHeight: 0.1, // % of canvas height
         feedbackBubbleHeight: 0.2, // % of canvas height
+        earlyFlashDuration: 150, // ms duration of red flash for early presses
+        earlyFlashTintColor: "255,0,0", // base RGB for tint (alpha animated)
     },
 
     assets: {
@@ -137,6 +139,7 @@ const level1 = {
         imgBackground: new Image(),
         imgFeedbackSlow: new Image(),
         imgFeedbackLate: new Image(),
+        imgFeedbackEarly: new Image(),
         imgFeedbackFast1: new Image(),
         imgFeedbackFast2: new Image(),
         imgFeedbackFast3: new Image(),
@@ -164,6 +167,9 @@ const level1 = {
         feedbackBubbles: [],
         lastTrialType: null,
         lastFastFeedback: 0, // 0 = no streak, 1 = fast1, 2 = fast2, 3 = fast3
+        // Visual flash timing for early (error) responses
+        earlyFlashUntil: 0,
+        tintedSpriteCache: {}, // cache of tinted offscreen canvases keyed by baseSrc|color
 
         // Per-keypress data log (one entry per ArrowDown key press). Exposed as window.level1Data.
         data: [],
@@ -270,6 +276,7 @@ const level1 = {
         this.assets.imgBackground.src = base + "level1/background.png"
         this.assets.imgFeedbackSlow.src = base + "level1/feedback_slow1.png"
         this.assets.imgFeedbackLate.src = base + "level1/feedback_late1.png"
+        this.assets.imgFeedbackEarly.src = base + "level1/feedback_early1.png"
         this.assets.imgFeedbackFast1.src = base + "level1/feedback_fast1.png"
         this.assets.imgFeedbackFast2.src = base + "level1/feedback_fast2.png"
         this.assets.imgFeedbackFast3.src = base + "level1/feedback_fast3.png"
@@ -296,6 +303,7 @@ const level1 = {
             this.assets.imgBackground,
             this.assets.imgFeedbackSlow,
             this.assets.imgFeedbackLate,
+            this.assets.imgFeedbackEarly,
             this.assets.imgFeedbackFast1,
             this.assets.imgFeedbackFast2,
             this.assets.imgFeedbackFast3,
@@ -331,6 +339,48 @@ const level1 = {
             this.state.player.y = centerY - this.state.player.height / 2
             this.state.player.originalY = this.state.player.y
         })
+    },
+    /**
+     * Recalculate sprite dimensions & positions after an external canvas resize.
+     * (Canvas width/height should already be updated by host code before calling.)
+     */
+    handleResize: function () {
+        if (!this.state.canvas) return
+        const canvas = this.state.canvas
+        // Capture previous relative positions (fractions of canvas) to preserve layout
+        const prevPlayerCenterFrac = (this.state.player.x + this.state.player.width / 2) / canvas.width || 0.5
+        const jumpingOffsetFrac = this.state.player.jumping ? (this.state.player.originalY - this.state.player.y) / canvas.height : 0
+        const stimVisible = this.state.stimulus.visible || this.state.stimulus.exiting
+        let stimCenterFracX = 0
+        let stimCenterFracY = 0
+        if (stimVisible) {
+            stimCenterFracX = (this.state.stimulus.x + this.state.stimulus.width / 2) / canvas.width
+            stimCenterFracY = (this.state.stimulus.y + this.state.stimulus.height / 2) / canvas.height
+        }
+        // Recompute base dimensions
+        this.initializeDimensions(canvas)
+        // Player: restore center horizontally; recompute vertical center from params.playerY
+        this.state.player.x = canvas.width * prevPlayerCenterFrac - this.state.player.width / 2
+        const centerY = canvas.height * (typeof this.params.playerY === "number" ? this.params.playerY : 0.5)
+        this.state.player.y = centerY - this.state.player.height / 2
+        this.state.player.originalY = this.state.player.y
+        if (jumpingOffsetFrac) {
+            this.state.player.y = this.state.player.originalY - jumpingOffsetFrac * canvas.height
+        }
+        // Stimulus: preserve center fractions if currently on screen / animating
+        if (stimVisible) {
+            const stimulusAspectRatio = this.assets.imgStimulus.naturalWidth / this.assets.imgStimulus.naturalHeight
+            this.state.stimulus.height = canvas.height * this.params.stimulusHeight
+            this.state.stimulus.width = this.state.stimulus.height * stimulusAspectRatio
+            this.state.stimulus.x = canvas.width * stimCenterFracX - this.state.stimulus.width / 2
+            this.state.stimulus.y = canvas.height * stimCenterFracY - this.state.stimulus.height / 2
+            if (!this.state.stimulus.exiting) {
+                // Maintain initialY baseline for fall animation if not exiting
+                this.state.stimulus.initialY = this.state.stimulus.y
+            }
+        }
+        // Update dependent pixel distances
+        this.params.stimulusFallDistancePx = canvas.height * this.params.stimulusFallDistance
     },
 
     /**
@@ -594,13 +644,44 @@ const level1 = {
      * Draws the player sprite.
      */
     drawPlayer: function () {
-        this.state.ctx.drawImage(
-            this.assets.imgPlayer,
-            this.state.player.x,
-            this.state.player.y,
-            this.state.player.width,
-            this.state.player.height
-        )
+        const ctx = this.state.ctx
+        const p = this.state.player
+        const flashing = this.now() < this.state.earlyFlashUntil
+        if (!flashing) {
+            ctx.drawImage(this.assets.imgPlayer, p.x, p.y, p.width, p.height)
+            return
+        }
+        // Pulsate alpha: sin from 0..pi over duration -> 0..1..0, clamp for visibility
+        const remaining = this.state.earlyFlashUntil - this.now()
+        const total = this.params.earlyFlashDuration || 150
+        const prog = 1 - remaining / total
+        const alpha = Math.sin(Math.PI * prog) // 0..1..0 curve
+        const tint = `rgba(${this.params.earlyFlashTintColor},${alpha})`
+        const tinted = this.getTintedPlayerSprite(this.assets.imgPlayer, tint)
+        ctx.drawImage(tinted, p.x, p.y, p.width, p.height)
+    },
+    /**
+     * Returns a tinted version of the given player sprite, cached by src+color.
+     * Tints preserve alpha: red applied only where sprite has opacity.
+     */
+    getTintedPlayerSprite: function (img, color) {
+        if (!img || !img.naturalWidth) return img
+        // Do not cache dynamic alpha variants excessively: round alpha to 2 decimals in key
+        const key =
+            img.src +
+            "|" +
+            color.replace(/(rgba\([^,]+,[^,]+,[^,]+,)([0-9]*\.?[0-9]+)\)/, (m, pre, a) => pre + parseFloat(a).toFixed(2) + ")")
+        if (this.state.tintedSpriteCache[key]) return this.state.tintedSpriteCache[key]
+        const c = document.createElement("canvas")
+        c.width = img.naturalWidth
+        c.height = img.naturalHeight
+        const g = c.getContext("2d")
+        g.drawImage(img, 0, 0)
+        g.globalCompositeOperation = "source-atop"
+        g.fillStyle = color
+        g.fillRect(0, 0, c.width, c.height)
+        this.state.tintedSpriteCache[key] = c
+        return c
     },
 
     /**
@@ -852,6 +933,11 @@ const level1 = {
         } else if (outcome.type === TrialTypes.TIMEOUT) {
             this.showFeedbackBubble("late", bubbleX, bubbleY)
             this.state.lastFastFeedback = 0 // Reset fast streak
+        } else if (outcome.type === TrialTypes.EARLY) {
+            ;(typeof DoggoNogoShared !== "undefined" ? DoggoNogoShared.safePlay : this.safePlay)(this.assets.soundEarly)
+            this.showFeedbackBubble("early", bubbleX, bubbleY)
+            this.state.lastFastFeedback = 0
+            this.state.earlyFlashUntil = this.now() + this.params.earlyFlashDuration
         } else if (outcome.type === TrialTypes.FAST) {
             // Logic for fast streak feedback
             if (this.state.lastTrialType === TrialTypes.FAST) {
@@ -860,10 +946,6 @@ const level1 = {
                 this.state.lastFastFeedback = 1
             }
             this.showFeedbackBubble(`fast${this.state.lastFastFeedback}`, bubbleX, bubbleY)
-        } else {
-            // early trial
-            ;(typeof DoggoNogoShared !== "undefined" ? DoggoNogoShared.safePlay : this.safePlay)(this.assets.soundEarly)
-            this.state.lastFastFeedback = 0 // Reset fast streak
         }
     },
 
@@ -1338,6 +1420,8 @@ const level1 = {
             img = this.assets.imgFeedbackSlow
         } else if (type === "late") {
             img = this.assets.imgFeedbackLate
+        } else if (type === "early") {
+            img = this.assets.imgFeedbackEarly
         } else if (type === "fast1") {
             img = this.assets.imgFeedbackFast1
         } else if (type === "fast2") {

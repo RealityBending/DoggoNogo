@@ -81,6 +81,10 @@
             sizeCanvas()
             window.addEventListener("resize", () => {
                 sizeCanvas()
+                // Let current running level recompute sprite sizes/positions (engine also listens, but call directly for immediate effect)
+                if (window.DoggoNogoEngine && DoggoNogoEngine.level && typeof DoggoNogoEngine.level.handleResize === "function") {
+                    DoggoNogoEngine.level.handleResize()
+                }
             })
 
             // The DoggoNogoEngine, DoggoNogoUI, and level objects are expected to be available globally.

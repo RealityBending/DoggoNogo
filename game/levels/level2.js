@@ -49,6 +49,9 @@ const level2 = {
         playerHeight: 0.4,
         playerY: 0.7,
         stimulusHeight: 0.1,
+        errorFlashDuration: 150,
+        errorFlashTintColor: "255,0,0", // base RGB; alpha animated
+        feedbackBubbleHeight: 0.2, // % of canvas height for feedback bubbles
     },
     assets: {
         imgPlayer: new Image(),
@@ -69,6 +72,14 @@ const level2 = {
         // Cover (reuse root-level assets if present)
         imgCover: new Image(),
         imgCoverText: new Image(),
+        // Feedback images
+        imgFeedbackSlow: new Image(),
+        imgFeedbackLate: new Image(),
+        imgFeedbackFast1: new Image(),
+        imgFeedbackFast2: new Image(),
+        imgFeedbackFast3: new Image(),
+        imgFeedbackError: new Image(),
+        imgFeedbackEarly: new Image(),
     },
     state: {
         gameState: "playing",
@@ -118,6 +129,11 @@ const level2 = {
         endButtonRect: { x: 0, y: 0, w: 0, h: 0 },
         showContinueButton: false,
         continueLabel: "Continue",
+        errorFlashUntil: 0,
+        tintedSpriteCache: {},
+        feedbackBubbles: [],
+        lastTrialType: null,
+        lastFastFeedback: 0,
     },
     initializeDimensions: function (canvas) {
         this.state.canvas = canvas
@@ -128,6 +144,42 @@ const level2 = {
         const stimAspect = this.assets.imgStimulus.naturalWidth / this.assets.imgStimulus.naturalHeight
         this.state.stimulus.height = canvas.height * this.params.stimulusHeight
         this.state.stimulus.width = this.state.stimulus.height * stimAspect
+        this.params.stimulusFallDistancePx = canvas.height * this.params.stimulusFallDistance
+    },
+    /**
+     * Recalculate dimensions & positions when the canvas is resized externally.
+     * Should be called after the canvas width/height have been updated.
+     */
+    handleResize: function () {
+        if (!this.state.canvas) return
+        const canvas = this.state.canvas
+        // Preserve player center fraction & jump offset
+        const prevPlayerCenterFrac = (this.state.player.x + this.state.player.width / 2) / canvas.width || 0.5
+        const jumpingOffsetFrac = this.state.player.jumping ? (this.state.player.originalY - this.state.player.y) / canvas.height : 0
+        const stimVisible = this.state.stimulus.visible || this.state.stimulus.exiting
+        let stimCenterFracX = 0
+        let stimCenterFracY = 0
+        if (stimVisible) {
+            stimCenterFracX = (this.state.stimulus.x + this.state.stimulus.width / 2) / canvas.width
+            stimCenterFracY = (this.state.stimulus.y + this.state.stimulus.height / 2) / canvas.height
+        }
+        // Recompute core dimensions
+        this.initializeDimensions(canvas)
+        // Restore player position
+        this.state.player.x = canvas.width * prevPlayerCenterFrac - this.state.player.width / 2
+        const centerY = canvas.height * (typeof this.params.playerY === "number" ? this.params.playerY : 0.5)
+        this.state.player.y = centerY - this.state.player.height / 2
+        this.state.player.originalY = this.state.player.y
+        if (jumpingOffsetFrac) this.state.player.y = this.state.player.originalY - jumpingOffsetFrac * canvas.height
+        // Stimulus center & size if visible
+        if (stimVisible) {
+            const stimAspect = this.assets.imgStimulus.naturalWidth / this.assets.imgStimulus.naturalHeight
+            this.state.stimulus.height = canvas.height * this.params.stimulusHeight
+            this.state.stimulus.width = this.state.stimulus.height * stimAspect
+            this.state.stimulus.x = canvas.width * stimCenterFracX - this.state.stimulus.width / 2
+            this.state.stimulus.y = canvas.height * stimCenterFracY - this.state.stimulus.height / 2
+            if (!this.state.stimulus.exiting) this.state.stimulus.initialY = this.state.stimulus.y
+        }
         this.params.stimulusFallDistancePx = canvas.height * this.params.stimulusFallDistance
     },
     load: function (canvas, options) {
@@ -148,6 +200,14 @@ const level2 = {
         // Cover assets (same root names as level1)
         this.assets.imgCover.src = base + "cover1_noText.png"
         this.assets.imgCoverText.src = base + "text.png"
+        // Feedback assets
+        this.assets.imgFeedbackSlow.src = base + "level2/feedback_slow1.png"
+        this.assets.imgFeedbackLate.src = base + "level2/feedback_late1.png"
+        this.assets.imgFeedbackFast1.src = base + "level2/feedback_fast1.png"
+        this.assets.imgFeedbackFast2.src = base + "level2/feedback_fast2.png"
+        this.assets.imgFeedbackFast3.src = base + "level2/feedback_fast3.png"
+        this.assets.imgFeedbackError.src = base + "level2/feedback_error1.png"
+        this.assets.imgFeedbackEarly.src = base + "level2/feedback_early1.png"
         const assetRefs = [
             // Images
             this.assets.imgPlayer1,
@@ -158,6 +218,13 @@ const level2 = {
             this.assets.imgBackground,
             this.assets.imgCover,
             this.assets.imgCoverText,
+            this.assets.imgFeedbackSlow,
+            this.assets.imgFeedbackLate,
+            this.assets.imgFeedbackFast1,
+            this.assets.imgFeedbackFast2,
+            this.assets.imgFeedbackFast3,
+            this.assets.imgFeedbackError,
+            this.assets.imgFeedbackEarly,
             // Audio
             this.assets.soundBackground,
             this.assets.soundError,
@@ -320,6 +387,7 @@ const level2 = {
         }
         if (this.state.inBreak) this.updateBreak()
         this.updateParticles()
+        this.updateFeedbackBubbles()
     },
     draw: function () {
         this.clearCanvas()
@@ -329,6 +397,7 @@ const level2 = {
         this.drawStimulus()
         this.drawScoreFeedback()
         this.drawParticles()
+        this.drawFeedbackBubbles()
         if (this.state.gameState === "done" && this.state.endOverlayVisible && this.state.showContinueButton) this.drawEndOverlay()
         if (this.state.inBreak) this.drawBreakOverlay()
     },
@@ -383,16 +452,43 @@ const level2 = {
         const p = this.state.player
         const img = this.assets.imgPlayer
         if (!img) return
+        const flashing = this.now() < this.state.errorFlashUntil
+        let baseOrTinted = img
+        if (flashing) {
+            const remaining = this.state.errorFlashUntil - this.now()
+            const total = this.params.errorFlashDuration || 150
+            const prog = 1 - remaining / total
+            const alpha = Math.sin(Math.PI * prog)
+            const tint = `rgba(${this.params.errorFlashTintColor},${alpha})`
+            baseOrTinted = this.getTintedPlayerSprite(img, tint)
+        }
         if (this.state.playerFacing === "right") {
             ctx.save()
-            // Mirror around player's vertical center line
             ctx.translate(p.x + p.width / 2, 0)
             ctx.scale(-1, 1)
-            ctx.drawImage(img, -p.width / 2, p.y, p.width, p.height)
+            ctx.drawImage(baseOrTinted, -p.width / 2, p.y, p.width, p.height)
             ctx.restore()
         } else {
-            ctx.drawImage(img, p.x, p.y, p.width, p.height)
+            ctx.drawImage(baseOrTinted, p.x, p.y, p.width, p.height)
         }
+    },
+    getTintedPlayerSprite: function (img, color) {
+        if (!img || !img.naturalWidth) return img
+        const key =
+            img.src +
+            "|" +
+            color.replace(/(rgba\([^,]+,[^,]+,[^,]+,)([0-9]*\.?[0-9]+)\)/, (m, pre, a) => pre + parseFloat(a).toFixed(2) + ")")
+        if (this.state.tintedSpriteCache[key]) return this.state.tintedSpriteCache[key]
+        const c = document.createElement("canvas")
+        c.width = img.naturalWidth
+        c.height = img.naturalHeight
+        const g = c.getContext("2d")
+        g.drawImage(img, 0, 0)
+        g.globalCompositeOperation = "source-atop"
+        g.fillStyle = color
+        g.fillRect(0, 0, c.width, c.height)
+        this.state.tintedSpriteCache[key] = c
+        return c
     },
     drawBreakOverlay: function () {
         const message = "Press SPACE to continue"
@@ -541,6 +637,7 @@ const level2 = {
         this.state.score += outcome.points
         if (typeof this.state.phaseFloorScore === "number") this.state.score = Math.max(this.state.score, this.state.phaseFloorScore)
         DoggoNogoShared.showScoreDelta(this, outcome.points)
+        this._handleTrialOutcomeFeedback(outcome)
         // Only update median with correct (non-error) responses explicitly marked correct (fast/slow)
         if (outcome.includeInMedian && typeof outcome.rt === "number" && (outcome.correct === undefined || outcome.correct === true)) {
             this.state.reactionTimes.push(outcome.rt)
@@ -565,6 +662,73 @@ const level2 = {
             })
         }
         this._checkForPhaseOrLevelEnd()
+    },
+    _handleTrialOutcomeFeedback: function (outcome) {
+        const bubbleX = this.state.player.x + this.state.player.width / 2
+        const bubbleY = this.state.player.y
+        if (outcome.type === TrialTypes.SLOW) {
+            this.showFeedbackBubble("slow", bubbleX, bubbleY)
+            this.state.lastFastFeedback = 0
+        } else if (outcome.type === TrialTypes.TIMEOUT) {
+            this.showFeedbackBubble("late", bubbleX, bubbleY)
+            this.state.lastFastFeedback = 0
+        } else if (outcome.type === TrialTypes.EARLY) {
+            this.showFeedbackBubble("early", bubbleX, bubbleY)
+            this.state.lastFastFeedback = 0
+        } else if (outcome.type === TrialTypes.ERROR) {
+            this.showFeedbackBubble("error", bubbleX, bubbleY)
+            this.state.lastFastFeedback = 0
+        } else if (outcome.type === TrialTypes.FAST) {
+            if (this.state.lastTrialType === TrialTypes.FAST) {
+                this.state.lastFastFeedback = (this.state.lastFastFeedback % 3) + 1
+            } else {
+                this.state.lastFastFeedback = 1
+            }
+            this.showFeedbackBubble(`fast${this.state.lastFastFeedback}`, bubbleX, bubbleY)
+        }
+        this.state.lastTrialType = outcome.type
+    },
+    showFeedbackBubble: function (type, x, y) {
+        let img = null
+        if (type === "slow") img = this.assets.imgFeedbackSlow
+        else if (type === "late") img = this.assets.imgFeedbackLate
+        else if (type === "fast1") img = this.assets.imgFeedbackFast1
+        else if (type === "fast2") img = this.assets.imgFeedbackFast2
+        else if (type === "fast3") img = this.assets.imgFeedbackFast3
+        else if (type === "error") img = this.assets.imgFeedbackError
+        else if (type === "early") img = this.assets.imgFeedbackEarly
+        if (!img || !img.naturalWidth) return
+        const aspect = img.naturalWidth / img.naturalHeight
+        const height = this.state.canvas.height * this.params.feedbackBubbleHeight
+        const width = height * aspect
+        this.state.feedbackBubbles.push({
+            img,
+            x: x - width / 2,
+            y: y - height,
+            width,
+            height,
+            creationTime: this.now(),
+            lifespan: 1500,
+            opacity: 1,
+        })
+    },
+    updateFeedbackBubbles: function () {
+        const now = this.now()
+        for (let i = this.state.feedbackBubbles.length - 1; i >= 0; i--) {
+            const b = this.state.feedbackBubbles[i]
+            const elapsed = now - b.creationTime
+            if (elapsed > b.lifespan) this.state.feedbackBubbles.splice(i, 1)
+            else if (b.lifespan - elapsed < 500) b.opacity = (b.lifespan - elapsed) / 500
+        }
+    },
+    drawFeedbackBubbles: function () {
+        const ctx = this.state.ctx
+        ctx.save()
+        for (const b of this.state.feedbackBubbles) {
+            ctx.globalAlpha = b.opacity
+            ctx.drawImage(b.img, b.x, b.y, b.width, b.height)
+        }
+        ctx.restore()
     },
     _checkForPhaseOrLevelEnd: function () {
         const epsilon = 1e-6
@@ -740,6 +904,7 @@ const level2 = {
                 timestamp: nowISO,
                 thresholdUsed,
             })
+            this.state.errorFlashUntil = this.now() + this.params.errorFlashDuration
             return
         }
         if (this.state.stimulus.visible && !this.state.stimulus.exiting) {
@@ -768,6 +933,7 @@ const level2 = {
                     responseKey: e.key,
                     correct: false,
                 })
+                this.state.errorFlashUntil = this.now() + this.params.errorFlashDuration
                 return
             }
             // Update facing based on stimulus side on any correct key (fast or slow)
