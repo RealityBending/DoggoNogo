@@ -865,6 +865,10 @@ const level1 = {
             this.state.stimulus.visible = true
             this.state.stimulus.exiting = false
             this.state.startTime = this.now()
+            // Marker flash on stimulus onset (if engine marker active)
+            if (typeof DoggoNogoEngine !== "undefined" && typeof DoggoNogoEngine.flashMarker === "function") {
+                DoggoNogoEngine.flashMarker()
+            }
             // Count this as a presented trial
             this.state.trials++
 

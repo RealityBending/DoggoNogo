@@ -83,9 +83,9 @@ const level2 = {
         imgPlayer1: new Image(),
         imgPlayer2: new Image(),
         imgPlayer3: new Image(),
-        // Yellow stimulus keeps legacy name imgStimulus for backwards compatibility
-        imgStimulus: new Image(),
-        imgStimulusBlue: new Image(),
+        // Generic stimulus variants
+        imgStimulus1: new Image(),
+        imgStimulus2: new Image(),
         imgBackground: new Image(),
         soundEvolve: new Audio(),
         soundLevelUp: new Audio(),
@@ -168,7 +168,7 @@ const level2 = {
         const playerAspect = this.assets.imgPlayer1.naturalWidth / this.assets.imgPlayer1.naturalHeight
         this.state.player.height = canvas.height * this.params.playerHeight
         this.state.player.width = this.state.player.height * playerAspect
-        const stimAspect = this.assets.imgStimulus.naturalWidth / this.assets.imgStimulus.naturalHeight
+        const stimAspect = this.assets.imgStimulus1.naturalWidth / this.assets.imgStimulus1.naturalHeight
         this.state.stimulus.height = canvas.height * this.params.stimulusHeight
         this.state.stimulus.width = this.state.stimulus.height * stimAspect
         this.params.stimulusFallDistancePx = canvas.height * this.params.stimulusFallDistance
@@ -200,7 +200,7 @@ const level2 = {
         if (jumpingOffsetFrac) this.state.player.y = this.state.player.originalY - jumpingOffsetFrac * canvas.height
         // Stimulus center & size if visible
         if (stimVisible) {
-            const stimAspect = this.assets.imgStimulus.naturalWidth / this.assets.imgStimulus.naturalHeight
+            const stimAspect = this.assets.imgStimulus1.naturalWidth / this.assets.imgStimulus1.naturalHeight
             this.state.stimulus.height = canvas.height * this.params.stimulusHeight
             this.state.stimulus.width = this.state.stimulus.height * stimAspect
             this.state.stimulus.x = canvas.width * stimCenterFracX - this.state.stimulus.width / 2
@@ -214,8 +214,8 @@ const level2 = {
         this.assets.imgPlayer1.src = base + "level2/player_1.png"
         this.assets.imgPlayer2.src = base + "level2/player_2.png"
         this.assets.imgPlayer3.src = base + "level2/player_3.png"
-        this.assets.imgStimulus.src = base + "level2/stimulus_yellow.png"
-        this.assets.imgStimulusBlue.src = base + "level2/stimulus_blue.png"
+        this.assets.imgStimulus1.src = base + "level2/stimulus_1.png"
+        this.assets.imgStimulus2.src = base + "level2/stimulus_2.png"
         this.assets.imgBackground.src = base + "level2/background.png"
         this.assets.soundEvolve.src = base + "level2/sound_evolve.mp3"
         this.assets.soundLevelUp.src = base + "sound_levelup.mp3" // shared root-level sound
@@ -240,8 +240,8 @@ const level2 = {
             this.assets.imgPlayer1,
             this.assets.imgPlayer2,
             this.assets.imgPlayer3,
-            this.assets.imgStimulus,
-            this.assets.imgStimulusBlue,
+            this.assets.imgStimulus1,
+            this.assets.imgStimulus2,
             this.assets.imgBackground,
             this.assets.imgCover,
             this.assets.imgCoverText,
@@ -318,8 +318,8 @@ const level2 = {
         introLines.forEach((l, i) => ctx.fillText(l, canvas.width / 2, startY + i * lh))
 
         // Draw both stimulus variants left and right with direction cues
-        const stimLeft = this.state.leftStimulusImg || this.assets.imgStimulus
-        const stimRight = this.state.rightStimulusImg || this.assets.imgStimulusBlue || this.assets.imgStimulus
+        const stimLeft = this.state.leftStimulusImg || this.assets.imgStimulus1
+        const stimRight = this.state.rightStimulusImg || this.assets.imgStimulus2 || this.assets.imgStimulus1
         const stimH = Math.min(canvas.height * 0.18, stimLeft.naturalHeight || 100)
         const stimAspectL = (stimLeft.naturalWidth || 100) / (stimLeft.naturalHeight || 100)
         const stimAspectR = (stimRight.naturalWidth || 100) / (stimRight.naturalHeight || 100)
@@ -386,13 +386,13 @@ const level2 = {
             window.getLevel2Data = () => this.state.data
         }
         this.assets.imgPlayer = this.assets.imgPlayer1
-        // Decide which color goes on which side ONCE per level start
+        // Decide which stimulus variant goes on which side ONCE per level start
         if (Math.random() < 0.5) {
-            this.state.leftStimulusImg = this.assets.imgStimulus
-            this.state.rightStimulusImg = this.assets.imgStimulusBlue
+            this.state.leftStimulusImg = this.assets.imgStimulus1
+            this.state.rightStimulusImg = this.assets.imgStimulus2
         } else {
-            this.state.leftStimulusImg = this.assets.imgStimulusBlue
-            this.state.rightStimulusImg = this.assets.imgStimulus
+            this.state.leftStimulusImg = this.assets.imgStimulus2
+            this.state.rightStimulusImg = this.assets.imgStimulus1
         }
         // Start background music (simple HTMLAudio loop, same as level1)
         try {
@@ -601,7 +601,7 @@ const level2 = {
     drawStimulus: function () {
         const stim = this.state.stimulus
         if (!stim.visible && !stim.exiting) return
-        const img = stim.img || this.assets.imgStimulus
+        const img = stim.img || this.assets.imgStimulus1
         const drawOne = (x, y, w, h, side, alpha = 1) => {
             const ctx = this.state.ctx
             ctx.save()
@@ -700,6 +700,10 @@ const level2 = {
             this.state.stimulus.visible = true
             this.state.stimulus.exiting = false
             this.state.startTime = this.now()
+            // Marker flash on stimulus onset
+            if (typeof DoggoNogoEngine !== "undefined" && typeof DoggoNogoEngine.flashMarker === "function") {
+                DoggoNogoEngine.flashMarker()
+            }
             this.state.trials++
             this.state.maxRT = 2 * this.state.medianRT
             if (this.state.currentTrialTimeoutId) clearTimeout(this.state.currentTrialTimeoutId)

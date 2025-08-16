@@ -11,6 +11,7 @@
         <script src="https://unpkg.com/@jspsych/plugin-call-function"></script>
         <script src="https://unpkg.com/@jspsych/plugin-preload"></script>
         <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response"></script>
+        <script src="https://unpkg.com/@jspsych/plugin-fullscreen"></script>
         <!-- Game scripts -->
         <script src="game/game.js"></script>
         <script src="game/engine.js"></script>
@@ -35,19 +36,33 @@
             },
         })
 
+        timeline.push({
+            type: jsPsychFullscreen,
+            fullscreen_mode: true,
+        })
+
         // Timeline -------------------------------------------------------------------
         timeline.push(
             ...DoggoNogo.level1({
                 includePreload: true,
                 assetBasePath: "game/assets/",
                 trialsNumber: 18,
+                markerEnabled: true,
+                fullscreen: true,
             }),
             ...DoggoNogo.level2({
                 includePreload: true,
                 assetBasePath: "game/assets/",
                 trialsNumber: 18,
+                markerEnabled: true,
+                fullscreen: true,
             })
         )
+
+        timeline.push({
+            type: jsPsychFullscreen,
+            fullscreen_mode: false,
+        })
 
         //  Run the timeline =====================================================
         jsPsych.run(timeline)

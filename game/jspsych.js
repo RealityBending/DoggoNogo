@@ -44,7 +44,8 @@
                     "level2/player_1.png",
                     "level2/player_2.png",
                     "level2/player_3.png",
-                    "level2/stimulus_yellow.png",
+                    "level2/stimulus_1.png",
+                    "level2/stimulus_2.png",
                     "level2/background.png",
                 ],
                 audio: [],
@@ -126,6 +127,10 @@
             introSequence = null,
             skipCover = false,
             suppressLoading = false,
+            markerEnabled = false,
+            markerFlashDuration = 100,
+            markerSize = 60,
+            fullscreen = false,
         } = {}) {
             return {
                 type: jsPsychCallFunction,
@@ -136,20 +141,30 @@
                     canvas.id = "gameCanvas"
                     let w = width
                     let h = height
-                    if (maintainAspect && (typeof w !== "number" || typeof h !== "number")) {
+                    if (!fullscreen && maintainAspect && (typeof w !== "number" || typeof h !== "number")) {
                         const size = computeResponsiveSize(targetAspectWidth, targetAspectHeight)
                         w = size.width
                         h = size.height
-                    } else if (maintainAspect && w && !h) {
+                    } else if (!fullscreen && maintainAspect && w && !h) {
                         // Derive h from w
                         h = Math.round(w * (targetAspectHeight / targetAspectWidth))
                     }
-                    canvas.width = w || 1792
-                    canvas.height = h || 1024
+                    if (!fullscreen) {
+                        canvas.width = w || 1792
+                        canvas.height = h || 1024
+                    } else {
+                        // Temporary size; engine will resize & inject styles
+                        canvas.width = window.innerWidth
+                        canvas.height = window.innerHeight
+                        canvas.style.width = "100vw"
+                        canvas.style.height = "100vh"
+                        canvas.style.margin = "0"
+                        canvas.style.border = "0"
+                    }
                     // Center canvas via container styling
                     canvas.style.display = "block"
                     canvas.style.margin = "0 auto"
-                    canvas.style.border = "1px solid #000"
+                    canvas.style.border = fullscreen ? "0" : "1px solid #000"
                     el.appendChild(canvas)
 
                     const level = levelGetter()
@@ -167,6 +182,10 @@
                         introSequence,
                         skipCover,
                         suppressLoading,
+                        markerEnabled,
+                        markerFlashDuration,
+                        markerSize,
+                        fullscreen,
                         onFinish: (finalState) => {
                             // Data to be saved by jsPsych
                             const trialData = {
@@ -208,6 +227,10 @@
             height,
             maintainAspect = true,
             trialsNumber,
+            markerEnabled = false,
+            markerFlashDuration = 100,
+            markerSize = 60,
+            fullscreen = false,
         } = {}) {
             const trials = []
             const base = normalizeBasePath(assetBasePath)
@@ -235,6 +258,10 @@
                     trialsNumber,
                     introSequence: typeof level1IntroSequence !== "undefined" ? level1IntroSequence : null,
                     skipCover: false,
+                    markerEnabled,
+                    markerFlashDuration,
+                    markerSize,
+                    fullscreen,
                 })
             )
 
@@ -249,6 +276,10 @@
             height,
             maintainAspect = true,
             trialsNumber,
+            markerEnabled = false,
+            markerFlashDuration = 100,
+            markerSize = 60,
+            fullscreen = false,
         } = {}) {
             const trials = []
             const base = normalizeBasePath(assetBasePath)
@@ -276,6 +307,10 @@
                     skipCover: true, // skip start/cover for subsequent level
                     // Hide loading splash between level 1 and 2 (standalone already preloads/suppresses)
                     suppressLoading: true,
+                    markerEnabled,
+                    markerFlashDuration,
+                    markerSize,
+                    fullscreen,
                 })
             )
             return trials

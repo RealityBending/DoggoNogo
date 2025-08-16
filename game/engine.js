@@ -15,11 +15,32 @@
          * @returns {Promise<void>}
          */
         run: async function (canvas, level, options = {}) {
-            const { onFinish, levelParams, introSequence, skipCover, suppressLoading } = options
+            const {
+                onFinish,
+                levelParams,
+                introSequence,
+                skipCover,
+                suppressLoading,
+                // Marker (formerly photodiode) visual trigger options (optional; defaults disabled)
+                markerEnabled = false,
+                markerFlashDuration = 100, // ms the square turns black after a trigger
+                markerSize = 60, // px square size
+                markerTriggerMode = "stimulus", // 'stimulus' | 'keypress'
+                fullscreen = false, // if true, resize canvas to window inner size (CSS/layout fullscreen, not browser Fullscreen API)
+            } = options
             this.canvas = canvas
             this.ctx = canvas.getContext("2d")
             this.level = level
             this.animationFrameId = null
+            // Marker indicator state (used for external physiological synchronization via photosensor)
+            this._marker = {
+                enabled: !!markerEnabled,
+                flashUntil: 0,
+                flashDuration: markerFlashDuration,
+                size: markerSize,
+                // Set when gameplay actually starts to avoid instruction-screen noise (optional design choice)
+                active: false,
+            }
 
             // Override level parameters if provided
             if (levelParams) {
@@ -40,10 +61,19 @@
                     this.level._loaded = true
                 }
 
+                // Optionally expand canvas to current viewport size (one-time here; resize listener can adjust later)
+                if (fullscreen) {
+                    this._applyViewportFullscreenStyles()
+                    this._resizeCanvasToViewport()
+                }
+
                 // Attach a resize listener that, after host resizes canvas, lets the level recompute layout.
                 // Host page is responsible for updating canvas width/height & devicePixelRatio transform.
                 if (!this._boundResizeHandler) {
                     this._boundResizeHandler = () => {
+                        if (fullscreen) {
+                            this._resizeCanvasToViewport()
+                        }
                         if (this.level && typeof this.level.handleResize === "function") {
                             this.level.handleResize()
                         }
@@ -101,6 +131,28 @@
                 }
 
                 await this.waitForStart()
+                // Activate marker after participant starts (so pre-start keys don't flash if desired)
+                if (this._marker && this._marker.enabled) {
+                    this._marker.active = true
+                    // Optional keypress trigger mode retained for compatibility
+                    if (markerTriggerMode === "keypress" && !this._boundMarkerKeyHandler) {
+                        this._boundMarkerKeyHandler = (e) => {
+                            if (!this._marker.enabled || !this._marker.active) return
+                            if (!this.level || !this.level.state || this.level.state.gameState !== "playing") return
+                            let isResp = false
+                            if (typeof this.level.isResponseKey === "function") {
+                                try {
+                                    isResp = this.level.isResponseKey(e.key)
+                                } catch (_) {}
+                            } else {
+                                isResp = ["ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)
+                            }
+                            if (!isResp) return
+                            this.flashMarker()
+                        }
+                        document.addEventListener("keydown", this._boundMarkerKeyHandler, true)
+                    }
+                }
 
                 // 3. Start the level and the game loop
                 this.level.start(this.canvas, (state) => {
@@ -170,6 +222,12 @@
                 this.ctx.fillText("An error occurred. See console for details.", this.canvas.width / 2, this.canvas.height / 2)
             }
         },
+        /** Public helper for levels to trigger the marker flash (e.g., on stimulus onset). */
+        flashMarker: function () {
+            if (!this._marker || !this._marker.enabled || !this._marker.active) return
+            const nowTs = typeof performance !== "undefined" && performance.now ? performance.now() : Date.now()
+            this._marker.flashUntil = nowTs + this._marker.flashDuration
+        },
 
         /**
          * Waits for the player to press the down arrow to start the game.
@@ -202,6 +260,10 @@
         loop: function () {
             this.level.update()
             this.level.draw() // Separated draw call
+            // Overlay marker square last so it's never occluded
+            if (this._marker && this._marker.enabled) {
+                this.drawMarkerIndicator()
+            }
             this.animationFrameId = requestAnimationFrame(this.loop.bind(this))
         },
 
@@ -217,6 +279,54 @@
                 window.removeEventListener("resize", this._boundResizeHandler)
                 this._boundResizeHandler = null
             }
+            if (this._boundMarkerKeyHandler) {
+                document.removeEventListener("keydown", this._boundMarkerKeyHandler, true)
+                this._boundMarkerKeyHandler = null
+            }
+            if (this._injectedFullscreenStyleEl) {
+                try {
+                    this._injectedFullscreenStyleEl.remove()
+                } catch (_) {}
+                this._injectedFullscreenStyleEl = null
+                // Restore overflow auto in case we hid scrollbars
+                document.documentElement.style.overflow = this._prevHtmlOverflow || ""
+                document.body.style.overflow = this._prevBodyOverflow || ""
+                document.body.style.margin = this._prevBodyMargin || ""
+            }
+        },
+        /**
+         * Draw a persistent white square that flashes black briefly after response key presses.
+         * Positioned at top-left corner (0,0) to align with a photosensor.
+         */
+        drawMarkerIndicator: function () {
+            if (!this._marker || !this._marker.enabled) return
+            const sz = this._marker.size || 60
+            const nowTs = typeof performance !== "undefined" && performance.now ? performance.now() : Date.now()
+            const isBlack = nowTs < this._marker.flashUntil
+            this.ctx.save()
+            this.ctx.fillStyle = isBlack ? "#000" : "#FFF"
+            this.ctx.fillRect(0, 0, sz, sz)
+            this.ctx.restore()
+        },
+        _applyViewportFullscreenStyles: function () {
+            if (this._injectedFullscreenStyleEl) return
+            // Save previous styles to restore later
+            this._prevHtmlOverflow = document.documentElement.style.overflow
+            this._prevBodyOverflow = document.body.style.overflow
+            this._prevBodyMargin = document.body.style.margin
+            // Inject minimal reset ensuring canvas can exactly match viewport without scrollbars
+            const styleEl = document.createElement("style")
+            styleEl.setAttribute("data-doggo-fullscreen", "")
+            styleEl.textContent = `html,body{margin:0;padding:0;overflow:hidden;height:100%;}canvas#gameCanvas{display:block;margin:0;}`
+            document.head.appendChild(styleEl)
+            this._injectedFullscreenStyleEl = styleEl
+        },
+        _resizeCanvasToViewport: function () {
+            if (!this.canvas) return
+            const w = document.documentElement.clientWidth || window.innerWidth
+            const h = document.documentElement.clientHeight || window.innerHeight
+            this.canvas.width = w
+            this.canvas.height = h
         },
     }
 
