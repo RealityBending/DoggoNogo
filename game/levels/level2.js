@@ -66,7 +66,7 @@ const level2 = {
         minJumpStrength: -1,
         stimulusFallDistance: 0.05,
         playerHeight: 0.4,
-        playerY: 0.75,
+        playerY: 0.65,
         stimulusHeight: 0.1,
         errorFlashDuration: 150,
         errorFlashTintColor: "255,0,0", // base RGB; alpha animated
