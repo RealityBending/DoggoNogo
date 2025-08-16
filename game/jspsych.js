@@ -125,6 +125,7 @@
             trialsNumber,
             introSequence = null,
             skipCover = false,
+            suppressLoading = false,
         } = {}) {
             return {
                 type: jsPsychCallFunction,
@@ -165,6 +166,7 @@
                         continueHint: "Press SPACE to continue",
                         introSequence,
                         skipCover,
+                        suppressLoading,
                         onFinish: (finalState) => {
                             // Data to be saved by jsPsych
                             const trialData = {
@@ -173,6 +175,8 @@
                                 total_score: finalState.score,
                                 trials_presented: finalState.trials,
                                 phases_completed: finalState.phaseIndex + 1,
+                                game_params: finalState.gameParams || null,
+                                performance: finalState.performance || null,
                             }
 
                             // Wait for spacebar press to formally end the trial
@@ -270,6 +274,8 @@
                     levelGetter: () => (typeof level2 !== "undefined" ? level2 : undefined),
                     introSequence: typeof level2IntroSequence !== "undefined" ? level2IntroSequence : null,
                     skipCover: true, // skip start/cover for subsequent level
+                    // Hide loading splash between level 1 and 2 (standalone already preloads/suppresses)
+                    suppressLoading: true,
                 })
             )
             return trials

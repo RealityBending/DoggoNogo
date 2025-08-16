@@ -119,6 +119,7 @@ const level1 = {
         gravity: 0.5,
         maxJumpStrength: -8, // Jump strength for a 0ms RT
         minJumpStrength: -1, // Jump strength for the slowest RT
+
         // Animations and size
         stimulusFallDistance: 0.05, // % of canvas height
         playerHeight: 0.2, // % of canvas height

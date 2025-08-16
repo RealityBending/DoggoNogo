@@ -15,7 +15,7 @@
          * @returns {Promise<void>}
          */
         run: async function (canvas, level, options = {}) {
-            const { onFinish, levelParams, introSequence, skipCover } = options
+            const { onFinish, levelParams, introSequence, skipCover, suppressLoading } = options
             this.canvas = canvas
             this.ctx = canvas.getContext("2d")
             this.level = level
@@ -26,14 +26,19 @@
                 Object.assign(this.level.params, levelParams)
             }
 
-            // Show loading screen
-            if (typeof DoggoNogoUI !== "undefined" && DoggoNogoUI.showLoading) {
-                DoggoNogoUI.showLoading(this.canvas)
+            // Show loading screen only if level not yet preloaded
+            if (!this.level._loaded && !suppressLoading) {
+                if (typeof DoggoNogoUI !== "undefined" && DoggoNogoUI.showLoading) {
+                    DoggoNogoUI.showLoading(this.canvas)
+                }
             }
 
             try {
-                // 1. Load assets
-                await this.level.load(this.canvas, { assetBasePath: options.assetBasePath })
+                // 1. Load assets (skip if already preloaded)
+                if (!this.level._loaded) {
+                    await this.level.load(this.canvas, { assetBasePath: options.assetBasePath })
+                    this.level._loaded = true
+                }
 
                 // Attach a resize listener that, after host resizes canvas, lets the level recompute layout.
                 // Host page is responsible for updating canvas width/height & devicePixelRatio transform.
@@ -119,6 +124,31 @@
 
                         // Convert Z-score to quantile
                         const quantile = DoggoNogoUI.zScoreToQuantile(zIES)
+
+                        // Persist metrics & parameter snapshot onto level state for downstream data collection
+                        try {
+                            this.level.state.performance = {
+                                meanRT,
+                                errorRate,
+                                ies,
+                                zIES,
+                                quantile,
+                            }
+                            this.level.state.gameParams = {
+                                trialsNumber: this.level.params.trialsNumber,
+                                minTrialsPerPhase: this.level.params.minTrialsPerPhase,
+                                gameDifficulty: this.level.params.gameDifficulty,
+                                populationMean: this.level.params.populationMean,
+                                populationSD: this.level.params.populationSD,
+                                minScore: this.level.params.minScore,
+                                maxScore: this.level.params.maxScore,
+                                // Level 2 conflict proportions (present only if defined on level.params)
+                                neutralProportionPhase2: this.level.params.neutralProportionPhase2,
+                                incongruentProportionPhase3: this.level.params.incongruentProportionPhase3,
+                            }
+                        } catch (e) {
+                            console.warn("Failed to attach performance snapshot", e)
+                        }
 
                         DoggoNogoUI.showScoreScreen(this.canvas, quantile, {
                             hint: options.continueHint,

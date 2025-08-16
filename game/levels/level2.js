@@ -1,12 +1,24 @@
 /**
- * Level 2 logic (directional variant of Level 1).
+ * Level 2 logic (Simon-task style directional variant of Level 1 / baseline simple RT).
  *
- * Differences vs Level 1:
- *  - Two directional stimuli (left/right) requiring ArrowLeft / ArrowRight.
- *  - Explicit "error" outcome (wrong direction) separate from early / timeout.
- *  - Simplified visual feedback (numeric score delta + evolution sparkles only).
- *  - Audio behavior mirrors Level 1 (background music + fast/slow/error/evolve SFX).
- *  - Start sound is played centrally by the engine to avoid duplication.
+ * Cognitive Mapping / Executive Function Rationale
+ * ------------------------------------------------
+ *  - Level 1 is a simple reaction time task measuring baseline processing speed (single response mapping).
+ *  - Level 2 introduces visuo-motor compatibility (Simon) manipulation across phases to tax inhibitory control:
+ *      Phase 1 (index 0): Only CONGRUENT trials (stimulus appears left/right; arrow orientation matches its position).
+ *      Phase 2 (index 1): Mixture of CONGRUENT (left/right position with matching orientation) and NEUTRAL trials.
+ *                         Neutral trials are vertical (TOP/BOTTOM) spawns; spatial position provides no lateral cue.
+ *      Phase 3 (index 2): Mixture of CONGRUENT and INCONGRUENT trials (left/right spawns only; some orientations conflict).
+ *                         No neutral trials appear in this phase.
+ *  - Difficulty / conflict category per trial is logged as: "congruent" | "neutral" | "incongruent" (Level 2 only).
+ *
+ * Configurable Conflict Proportions
+ * ---------------------------------
+ *  - params.neutralProportionPhase2 (default 0.5): Probability a Phase 2 trial is NEUTRAL (vertical/top-bottom spawn).
+ *      Remaining Phase 2 trials are CONGRUENT left/right.
+ *  - params.incongruentProportionPhase3 (default 0.5): Probability a Phase 3 horizontal trial is INCONGRUENT.
+ *      Remaining Phase 3 trials are CONGRUENT. Phase 3 never spawns neutral (vertical) trials.
+ *  - These parameters are included in the exported game parameter snapshot.
  *
  * Scoring:
  *  Fast   (<= threshold)                : + scaled between minScore..maxScore
@@ -15,6 +27,13 @@
  *  Early  (before stimulus visible)     : - minScore
  *  Timeout (no response)                : 0
  * Only correct fast/slow trials update the adaptive median RT.
+ *
+ * Phase Targets (Simplified)
+ * --------------------------
+ * Same constant per-phase target logic as previously documented:
+ *   perPhaseTrials = ceil(trialsNumber / 3)
+ *   phaseTarget    = perPhaseTrials * minScore
+ * All three phases share this same phaseTarget, with phase floor scores enforcing progression.
  */
 
 if (typeof TrialTypes === "undefined") {
@@ -47,11 +66,17 @@ const level2 = {
         minJumpStrength: -1,
         stimulusFallDistance: 0.05,
         playerHeight: 0.4,
-        playerY: 0.7,
+        playerY: 0.75,
         stimulusHeight: 0.1,
         errorFlashDuration: 150,
         errorFlashTintColor: "255,0,0", // base RGB; alpha animated
         feedbackBubbleHeight: 0.2, // % of canvas height for feedback bubbles
+        // Spawn Y positions (fractions of canvas height) for vertical regions introduced in phase 2+
+        stimulusLocationTopY: 0.45,
+        stimulusLocationBottomY: 0.9,
+        // Conflict proportion parameters (see header documentation)
+        neutralProportionPhase2: 0.5, // Probability a Phase 2 trial is NEUTRAL (top/bottom). Remainder congruent.
+        incongruentProportionPhase3: 0.5, // Probability a Phase 3 horizontal trial is INCONGRUENT. Remainder congruent.
     },
     assets: {
         imgPlayer: new Image(),
@@ -107,6 +132,8 @@ const level2 = {
             exitInitialHeight: 0,
             side: null, // 'left' | 'right'
             img: null,
+            region: null, // spawn region: 'left','right','top','bottom'
+            difficulty: null, // 'congruent' | 'neutral' | 'incongruent'
         },
         startTime: 0,
         pendingStimulusTimeoutId: null,
@@ -334,14 +361,19 @@ const level2 = {
         this.state.gameState = "playing"
         this.state.phaseIndex = 0
         this.state.inBreak = false
-        this.state.phaseRequiredScores = [0, 0, 0]
+        // Simplified phase target logic (constant per-phase target):
+        // We divide the theoretical total number of valid trials (trialsNumber) equally across 3 phases.
+        // Each phase target = (trials per phase) * minScore (i.e., assuming all those trials would at least be minScore events).
+        const perPhaseTrials = Math.ceil(this.params.trialsNumber / 3)
+        const targetPerPhase = perPhaseTrials * this.params.minScore
+        this.state.phaseRequiredScores = [targetPerPhase, targetPerPhase, targetPerPhase]
         this.state.showContinueButton = !!opts.showContinueButton
         this.state.continueLabel = typeof opts.continueLabel === "string" ? opts.continueLabel : "Continue"
         this.state.endOverlayVisible = false
         this.state.medianRT = 1000
         this.state.maxRT = 2000
         this.state.phaseFloorScore = 0
-        this.state.phaseRequiredScores[0] = this.computePhaseTarget(0)
+        // phaseRequiredScores already initialized above
         if (this.state.pendingStimulusTimeoutId) clearTimeout(this.state.pendingStimulusTimeoutId)
         if (this.state.currentTrialTimeoutId) clearTimeout(this.state.currentTrialTimeoutId)
         // (Re)initialize sounds
@@ -491,7 +523,6 @@ const level2 = {
         return c
     },
     drawBreakOverlay: function () {
-        const message = "Press SPACE to continue"
         this.state.ctx.save()
         const pcx = this.state.player.x + this.state.player.width / 2
         const pcy = this.state.player.y + this.state.player.height / 2
@@ -503,10 +534,36 @@ const level2 = {
         this.state.ctx.fillStyle = g
         this.state.ctx.fillRect(0, 0, this.state.canvas.width, this.state.canvas.height)
         if (this.state.showBreakText) {
-            this.state.ctx.fillStyle = "white"
-            this.state.ctx.font = `${this.state.canvas.height * 0.053}px Arial`
             this.state.ctx.textAlign = "center"
-            this.state.ctx.fillText(message, this.state.canvas.width / 2, (1 / 3) * this.state.canvas.height)
+            // Phase-specific instructional messaging
+            let lines
+            if (this.state.phaseIndex === 1) {
+                // After completing Phase 1 (entering Phase 2): introduce vertical / neutral trials
+                lines = [
+                    "The bone can now also appear above or below!",
+                    "Respond according to its DIRECTION (left/right).",
+                    "",
+                    "Press SPACE to continue",
+                ]
+            } else if (this.state.phaseIndex === 2) {
+                // After completing Phase 2 (entering Phase 3): introduce incongruent horizontal trials
+                lines = ["Don't forget to respond according to the DIRECTION of the bone (left/right).", "", "Press SPACE to continue"]
+            } else {
+                // Default / other breaks
+                lines = ["Press SPACE to continue"]
+            }
+            // Dynamic font sizing relative to canvas
+            const baseSize = this.state.canvas.height * 0.045
+            const lineHeight = baseSize * 1.25
+            const startY = (1 / 3) * this.state.canvas.height - (lines.length - 1) * lineHeight * 0.5
+            for (let i = 0; i < lines.length; i++) {
+                const text = lines[i]
+                // Slightly emphasize first instructional line
+                const size = i === 0 && lines.length > 1 ? baseSize * 1.05 : baseSize
+                this.state.ctx.font = `${Math.round(size)}px Arial`
+                this.state.ctx.fillStyle = i === lines.length - 1 ? "#FFD54F" : "white"
+                this.state.ctx.fillText(text, this.state.canvas.width / 2, startY + i * lineHeight)
+            }
         }
         this.state.ctx.restore()
     },
@@ -593,16 +650,53 @@ const level2 = {
         if (this.state.pendingStimulusTimeoutId) clearTimeout(this.state.pendingStimulusTimeoutId)
         this.state.pendingStimulusTimeoutId = setTimeout(() => {
             this.state.pendingStimulusTimeoutId = null
-            // Randomly choose left or right side (50/50)
-            const side = Math.random() < 0.5 ? "left" : "right"
-            const centerY = this.state.canvas.height * 0.5
-            const xPercent = side === "left" ? 0.25 : 0.75
             const stim = this.state.stimulus
+            let region, side, difficulty
+            if (this.state.phaseIndex === 0) {
+                // Phase 1: only congruent horizontal trials
+                region = Math.random() < 0.5 ? "left" : "right"
+                side = region
+                difficulty = "congruent"
+            } else if (this.state.phaseIndex === 1) {
+                // Phase 2: mixture of congruent horizontal and neutral vertical trials
+                const pNeutral = Math.min(1, Math.max(0, this.params.neutralProportionPhase2 || 0))
+                const isNeutral = Math.random() < pNeutral
+                if (isNeutral) {
+                    region = Math.random() < 0.5 ? "top" : "bottom"
+                    side = Math.random() < 0.5 ? "left" : "right" // orientation independent of vertical location
+                    difficulty = "neutral"
+                } else {
+                    region = Math.random() < 0.5 ? "left" : "right"
+                    side = region // congruent
+                    difficulty = "congruent"
+                }
+            } else {
+                // Phase 3: mixture of congruent & incongruent horizontal (no neutral)
+                const pIncong = Math.min(1, Math.max(0, this.params.incongruentProportionPhase3 || 0))
+                region = Math.random() < 0.5 ? "left" : "right"
+                const isIncong = Math.random() < pIncong
+                if (isIncong) {
+                    side = region === "left" ? "right" : "left" // opposite = incongruent
+                    difficulty = "incongruent"
+                } else {
+                    side = region
+                    difficulty = "congruent"
+                }
+            }
+            stim.region = region
             stim.side = side
+            stim.difficulty = difficulty
             stim.img = side === "left" ? this.state.leftStimulusImg : this.state.rightStimulusImg
+            // Compute position based on region
+            let centerX = this.state.canvas.width * 0.5
+            let centerY = this.state.canvas.height * 0.5
+            if (region === "left") centerX = this.state.canvas.width * 0.25
+            else if (region === "right") centerX = this.state.canvas.width * 0.75
+            else if (region === "top") centerY = this.state.canvas.height * (this.params.stimulusLocationTopY || 0.25)
+            else if (region === "bottom") centerY = this.state.canvas.height * (this.params.stimulusLocationBottomY || 0.75)
             stim.y = centerY - stim.height / 2
             stim.initialY = stim.y
-            stim.x = this.state.canvas.width * xPercent - stim.width / 2
+            stim.x = centerX - stim.width / 2
             this.state.stimulus.visible = true
             this.state.stimulus.exiting = false
             this.state.startTime = this.now()
@@ -628,6 +722,7 @@ const level2 = {
                     includeInMedian: false,
                     stimulusX: this.state.stimulus.x,
                     stimulusY: this.state.stimulus.y,
+                    stimulusRegion: this.state.stimulus.region,
                     timestamp: new Date().toISOString(),
                 })
             }, this.state.maxRT)
@@ -657,6 +752,8 @@ const level2 = {
                 Score: this.state.score,
                 ScoreChange: outcome.points,
                 StimulusSide: this.state.stimulus.side,
+                StimulusRegion: this.state.stimulus.region,
+                Difficulty: this.state.stimulus.difficulty || "NA",
                 ResponseKey: outcome.responseKey || "NA",
                 Correct: typeof outcome.correct === "boolean" ? (outcome.correct ? 1 : 0) : "NA",
             })
@@ -739,25 +836,16 @@ const level2 = {
         } else this.startNewTrial()
     },
     getPhaseTargets: function () {
-        const targets = [0, 0, 0]
-        for (let i = 0; i < 3; i++)
-            targets[i] = this.state.phaseRequiredScores[i] > 0 ? this.state.phaseRequiredScores[i] : this.computePhaseTarget(i)
-        return targets
+        // All phase targets are fixed & precomputed now.
+        return this.state.phaseRequiredScores.slice()
     },
     ensurePhaseTarget: function () {
-        if (!this.state.phaseRequiredScores[this.state.phaseIndex] || this.state.phaseRequiredScores[this.state.phaseIndex] <= 0)
-            this.state.phaseRequiredScores[this.state.phaseIndex] = this.computePhaseTarget(this.state.phaseIndex)
         return this.state.phaseRequiredScores[this.state.phaseIndex]
     },
     computePhaseTarget: function (phaseIdx) {
-        // Heuristic: assume ~50% of remaining trials in this phase will be fast; enforce a floor tied to minTrialsPerPhase.
-        const phasesRemaining = Math.max(1, 3 - phaseIdx)
-        const trialsLeft = Math.max(0, this.params.trialsNumber - this.state.trials)
-        const trialsThisPhase = Math.ceil(trialsLeft / phasesRemaining)
-        const expectedFast = Math.floor(trialsThisPhase * 0.5)
-        const estimatedTarget = expectedFast * this.params.minScore
-        const minTargetByTrials = (this.params.minTrialsPerPhase / 2) * this.params.minScore
-        return Math.max(this.params.minScore, minTargetByTrials, estimatedTarget)
+        // With simplified logic, return the fixed per-phase target.
+        const perPhaseTrials = Math.ceil(this.params.trialsNumber / 3)
+        return perPhaseTrials * this.params.minScore
     },
     getEffectiveThreshold: function () {
         const d = this.params.gameDifficulty && this.params.gameDifficulty > 0 ? this.params.gameDifficulty : 1

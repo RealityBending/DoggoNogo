@@ -88,11 +88,30 @@
             })
 
             // The DoggoNogoEngine, DoggoNogoUI, and level objects are expected to be available globally.
+            async function preloadLevels() {
+                if (!canvas) return
+                // Create a temporary context for sizing; actual sizing already done.
+                const preloadOptions = { assetBasePath: "assets/" }
+                try {
+                    if (level1 && !level1._loaded) {
+                        await level1.load(canvas, preloadOptions)
+                        level1._loaded = true
+                    }
+                    if (level2 && !level2._loaded) {
+                        await level2.load(canvas, preloadOptions)
+                        level2._loaded = true
+                    }
+                } catch (e) {
+                    console.warn("Preload failed", e)
+                }
+            }
+
             function runLevel1() {
                 DoggoNogoEngine.run(canvas, level1, {
                     assetBasePath: "assets/",
                     introSequence: typeof level1IntroSequence !== "undefined" ? level1IntroSequence : null,
                     continueHint: "Press SPACE to continue",
+                    suppressLoading: true, // already preloaded
                     onFinish: () => {
                         const proceed = (e) => {
                             if (e.code === "Space") {
@@ -115,18 +134,26 @@
                     skipCover: true, // start directly at level 2 instruction screen
                     introSequence: typeof level2IntroSequence !== "undefined" ? level2IntroSequence : null,
                     continueHint: "Press SPACE to finish",
+                    suppressLoading: true, // preloaded
                     onFinish: (state) => {
                         console.log("All levels finished. Final state level2:", state)
-                        // Optionally wait for SPACE to clear or restart
                     },
                 })
             }
 
-            if (canvas && typeof DoggoNogoEngine !== "undefined" && typeof level1 !== "undefined" && typeof DoggoNogoUI !== "undefined") {
-                runLevel1()
-            } else {
-                console.error("Could not start level 1. Ensure canvas, engine, UI, and level scripts are loaded.")
-            }
+            ;(async () => {
+                if (
+                    canvas &&
+                    typeof DoggoNogoEngine !== "undefined" &&
+                    typeof level1 !== "undefined" &&
+                    typeof DoggoNogoUI !== "undefined"
+                ) {
+                    await preloadLevels()
+                    runLevel1()
+                } else {
+                    console.error("Could not start level 1. Ensure canvas, engine, UI, and level scripts are loaded.")
+                }
+            })()
         </script>
     </body>
 </html>
