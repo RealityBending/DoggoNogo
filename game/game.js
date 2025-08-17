@@ -113,8 +113,8 @@
     if (typeof global.DoggoNogoTrialTypes === "undefined") {
         global.DoggoNogoTrialTypes = { FAST: "fast", SLOW: "slow", EARLY: "early", TIMEOUT: "timeout", ERROR: "error" }
     }
-    if (typeof global.DoggoNogoShared === "undefined") {
-        global.DoggoNogoShared = {
+    if (typeof global.DoggoNogoCore === "undefined") {
+        global.DoggoNogoCore = {
             safePlay(audioEl, reset = true) {
                 if (!audioEl) return
                 try {
@@ -191,6 +191,93 @@
                 const textY = barY + barHeight * 0.75
                 ctx.fillText(level.state.scoreText, textX, textY)
             },
+            // Particle helpers
+            createParticles(level, x, y, count, config = {}) {
+                if (!level || !level.state) return
+                const particles = level.state.particles
+                const speedMin = config.speedMin ?? 1
+                const speedMax = config.speedMax ?? 5
+                const sizeMin = config.sizeMin ?? 2
+                const sizeMax = config.sizeMax ?? 4
+                const lifeMin = config.lifeMin ?? 40
+                const lifeMax = config.lifeMax ?? 90
+                for (let i = 0; i < count; i++) {
+                    const angle = Math.random() * Math.PI * 2
+                    const speed = Math.random() * (speedMax - speedMin) + speedMin
+                    const size = Math.random() * (sizeMax - sizeMin) + sizeMin
+                    const life = Math.random() * (lifeMax - lifeMin) + lifeMin
+                    const colorFn = config.colorFn || (() => `hsl(${Math.random() * 360},100%,70%)`)
+                    particles.push({
+                        x,
+                        y,
+                        vx: Math.cos(angle) * speed,
+                        vy: Math.sin(angle) * speed,
+                        size,
+                        life,
+                        maxLife: life,
+                        color: colorFn(),
+                        fade: config.fade !== false,
+                    })
+                }
+            },
+            updateParticles(level) {
+                if (!level || !level.state) return
+                const arr = level.state.particles
+                for (let i = arr.length - 1; i >= 0; i--) {
+                    const p = arr[i]
+                    p.x += p.vx
+                    p.y += p.vy
+                    p.life -= 1
+                    if (p.life <= 0) arr.splice(i, 1)
+                }
+            },
+            drawParticles(level) {
+                if (!level || !level.state) return
+                const ctx = level.state.ctx
+                ctx.save()
+                for (const p of level.state.particles) {
+                    const alpha = p.fade ? Math.max(0, p.life / p.maxLife) : 1
+                    ctx.globalAlpha = alpha
+                    ctx.fillStyle = p.color
+                    ctx.fillRect(p.x, p.y, p.size, p.size)
+                }
+                ctx.restore()
+            },
+            // Feedback bubble helpers
+            createFeedbackBubble(level, img, x, y, width, height, lifespan = 1500) {
+                if (!level || !level.state) return
+                level.state.feedbackBubbles.push({
+                    img,
+                    x: x - width / 2,
+                    y: y - height,
+                    width,
+                    height,
+                    creationTime: level.now ? level.now() : Date.now(),
+                    lifespan,
+                    opacity: 1,
+                })
+            },
+            updateFeedbackBubbles(level, fadeMs = 500) {
+                if (!level || !level.state) return
+                const now = level.now ? level.now() : Date.now()
+                const arr = level.state.feedbackBubbles
+                for (let i = arr.length - 1; i >= 0; i--) {
+                    const b = arr[i]
+                    const elapsed = now - b.creationTime
+                    if (elapsed > b.lifespan) arr.splice(i, 1)
+                    else if (b.lifespan - elapsed < fadeMs) b.opacity = (b.lifespan - elapsed) / fadeMs
+                }
+            },
+            drawFeedbackBubbles(level) {
+                if (!level || !level.state) return
+                const ctx = level.state.ctx
+                ctx.save()
+                for (const b of level.state.feedbackBubbles) {
+                    ctx.globalAlpha = b.opacity
+                    ctx.drawImage(b.img, b.x, b.y, b.width, b.height)
+                }
+                ctx.restore()
+            },
             clearTrialTimers(state) {
                 if (!state) return
                 if (state.pendingStimulusTimeoutId) {
@@ -235,13 +322,53 @@
                 return c
             },
             showScoreDelta(levelObj, points) {
-                if (!levelObj || typeof levelObj.showScoreFeedback !== "function") return
+                if (!levelObj) return
                 const sign = points > 0 ? "+" : ""
-                // Store raw points if level maintains scoreTextPoints (for dynamic styling)
-                if (levelObj.state) {
-                    levelObj.state.scoreTextPoints = points
+                if (levelObj.state) levelObj.state.scoreTextPoints = points
+                if (typeof levelObj.showScoreFeedback === "function") {
+                    levelObj.showScoreFeedback(`${sign}${Math.round(points)}`)
+                } else {
+                    this.showScoreFeedback(levelObj, `${sign}${Math.round(points)}`)
                 }
-                levelObj.showScoreFeedback(`${sign}${Math.round(points)}`)
+            },
+            // Centralized helper to display transient score feedback text
+            showScoreFeedback(levelObj, text, durationMs = 1000) {
+                if (!levelObj || !levelObj.state) return
+                levelObj.state.scoreText = text
+                levelObj.state.scoreTextVisible = true
+                if (levelObj.state.scoreTextTimeout) clearTimeout(levelObj.state.scoreTextTimeout)
+                levelObj.state.scoreTextTimeout = setTimeout(() => {
+                    levelObj.state.scoreTextVisible = false
+                }, durationMs)
+            },
+            // Centralized feedback bubble creator selecting correct asset by type
+            showFeedbackBubble(levelObj, type, x, y, lifespan = 1500) {
+                if (!levelObj || !levelObj.state) return
+                const assets = levelObj.assets || {}
+                const map = {
+                    slow: assets.imgFeedbackSlow,
+                    late: assets.imgFeedbackLate,
+                    early: assets.imgFeedbackEarly,
+                    fast1: assets.imgFeedbackFast1,
+                    fast2: assets.imgFeedbackFast2,
+                    fast3: assets.imgFeedbackFast3,
+                    error: assets.imgFeedbackError,
+                }
+                const img = map[type]
+                if (!img || !img.naturalWidth) return
+                const aspect = img.naturalWidth / img.naturalHeight
+                const height = levelObj.state.canvas.height * (levelObj.params?.feedbackBubbleHeight || 0.1)
+                const width = height * aspect
+                levelObj.state.feedbackBubbles.push({
+                    img,
+                    x: x - width / 2,
+                    y: y - height,
+                    width,
+                    height,
+                    creationTime: levelObj.now ? levelObj.now() : Date.now(),
+                    lifespan,
+                    opacity: 1,
+                })
             },
             getTrialTypeLabel(type) {
                 return type === "timeout" ? "Timeout" : type.charAt(0).toUpperCase() + type.slice(1)

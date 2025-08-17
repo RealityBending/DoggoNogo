@@ -424,30 +424,23 @@ const level2 = {
     draw: function () {
         this.clearCanvas()
         this.drawBackground()
-        DoggoNogoShared.drawProgressBar(this)
+        DoggoNogoCore.drawProgressBar(this)
         this.drawPlayer()
         this.drawStimulus()
         this.drawScoreFeedback()
-        this.drawParticles()
+        DoggoNogoCore.drawParticles(this)
         this.drawFeedbackBubbles()
         if (this.state.gameState === "done" && this.state.endOverlayVisible && this.state.showContinueButton) this.drawEndOverlay()
         if (this.state.inBreak) this.drawBreakOverlay()
     },
     drawParticles: function () {
-        this.state.ctx.save()
-        for (const p of this.state.particles) {
-            this.state.ctx.globalAlpha = Math.max(0, p.life / p.maxLife)
-            this.state.ctx.fillStyle = p.color
-            this.state.ctx.fillRect(p.x, p.y, p.size, p.size)
-        }
-        this.state.ctx.restore()
+        DoggoNogoCore.drawParticles(this)
     },
     drawBackground: function () {
         this.state.ctx.drawImage(this.assets.imgBackground, 0, 0, this.state.canvas.width, this.state.canvas.height)
     },
-    // Progress bar drawing handled by DoggoNogoShared.drawProgressBar
     drawScoreFeedback: function () {
-        DoggoNogoShared.drawScoreFeedback(this)
+        DoggoNogoCore.drawScoreFeedback(this)
     },
     drawPlayer: function () {
         const ctx = this.state.ctx
@@ -475,7 +468,7 @@ const level2 = {
         }
     },
     getTintedPlayerSprite: function (img, color) {
-        return DoggoNogoShared.getTintedSprite(this, img, color)
+        return DoggoNogoCore.getTintedSprite(this, img, color)
     },
     drawBreakOverlay: function () {
         this.state.ctx.save()
@@ -690,7 +683,7 @@ const level2 = {
     finishTrial: function (outcome) {
         this.state.score += outcome.points
         if (typeof this.state.phaseFloorScore === "number") this.state.score = Math.max(this.state.score, this.state.phaseFloorScore)
-        DoggoNogoShared.showScoreDelta(this, outcome.points)
+        DoggoNogoCore.showScoreDelta(this, outcome.points)
         this._handleTrialOutcomeFeedback(outcome)
         // Only update median with correct (non-error) responses explicitly marked correct (fast/slow)
         if (outcome.includeInMedian && typeof outcome.rt === "number" && (outcome.correct === undefined || outcome.correct === true)) {
@@ -745,46 +738,13 @@ const level2 = {
         this.state.lastTrialType = outcome.type
     },
     showFeedbackBubble: function (type, x, y) {
-        let img = null
-        if (type === "slow") img = this.assets.imgFeedbackSlow
-        else if (type === "late") img = this.assets.imgFeedbackLate
-        else if (type === "fast1") img = this.assets.imgFeedbackFast1
-        else if (type === "fast2") img = this.assets.imgFeedbackFast2
-        else if (type === "fast3") img = this.assets.imgFeedbackFast3
-        else if (type === "error") img = this.assets.imgFeedbackError
-        else if (type === "early") img = this.assets.imgFeedbackEarly
-        if (!img || !img.naturalWidth) return
-        const aspect = img.naturalWidth / img.naturalHeight
-        const height = this.state.canvas.height * this.params.feedbackBubbleHeight
-        const width = height * aspect
-        this.state.feedbackBubbles.push({
-            img,
-            x: x - width / 2,
-            y: y - height,
-            width,
-            height,
-            creationTime: this.now(),
-            lifespan: 1500,
-            opacity: 1,
-        })
+        if (typeof DoggoNogoCore !== "undefined") DoggoNogoCore.showFeedbackBubble(this, type, x, y)
     },
     updateFeedbackBubbles: function () {
-        const now = this.now()
-        for (let i = this.state.feedbackBubbles.length - 1; i >= 0; i--) {
-            const b = this.state.feedbackBubbles[i]
-            const elapsed = now - b.creationTime
-            if (elapsed > b.lifespan) this.state.feedbackBubbles.splice(i, 1)
-            else if (b.lifespan - elapsed < 500) b.opacity = (b.lifespan - elapsed) / 500
-        }
+        DoggoNogoCore.updateFeedbackBubbles(this, 500)
     },
     drawFeedbackBubbles: function () {
-        const ctx = this.state.ctx
-        ctx.save()
-        for (const b of this.state.feedbackBubbles) {
-            ctx.globalAlpha = b.opacity
-            ctx.drawImage(b.img, b.x, b.y, b.width, b.height)
-        }
-        ctx.restore()
+        DoggoNogoCore.drawFeedbackBubbles(this)
     },
     _checkForPhaseOrLevelEnd: function () {
         const epsilon = 1e-6
@@ -820,7 +780,7 @@ const level2 = {
             const cx = this.state.player.x + this.state.player.width / 2
             const cy = this.state.player.y + this.state.player.height / 2
             this.createRedSparkles(cx, cy, 40)
-            DoggoNogoShared.safePlay(this.assets.soundEvolve)
+            DoggoNogoCore.safePlay(this.assets.soundEvolve)
             this.state.breakState = "effects" // still reuse state names for simplicity
         }
         if (this.state.breakState === "effects" && elapsed > 2000) {
@@ -829,29 +789,18 @@ const level2 = {
         }
     },
     createRedSparkles: function (x, y, count) {
-        for (let i = 0; i < count; i++) {
-            const angle = Math.random() * Math.PI * 2
-            const speed = Math.random() * 4 + 1
-            this.state.particles.push({
-                x,
-                y,
-                vx: Math.cos(angle) * speed,
-                vy: Math.sin(angle) * speed,
-                size: Math.random() * 3 + 2,
-                life: Math.random() * 50 + 40,
-                maxLife: 90,
-                color: `hsl(${Math.random() * 20}, 100%, ${60 + Math.random() * 20}%)`, // reds/oranges
-            })
-        }
+        DoggoNogoCore.createParticles(this, x, y, count, {
+            speedMin: 1,
+            speedMax: 5,
+            sizeMin: 2,
+            sizeMax: 5,
+            lifeMin: 40,
+            lifeMax: 90,
+            colorFn: () => `hsl(${Math.random() * 20}, 100%, ${60 + Math.random() * 20}%)`,
+        })
     },
     updateParticles: function () {
-        for (let i = this.state.particles.length - 1; i >= 0; i--) {
-            const p = this.state.particles[i]
-            p.x += p.vx
-            p.y += p.vy
-            p.life -= 1
-            if (p.life <= 0) this.state.particles.splice(i, 1)
-        }
+        DoggoNogoCore.updateParticles(this)
     },
     startPhaseBreak: function () {
         this.state.phaseIndex = Math.min(2, this.state.phaseIndex + 1)
@@ -859,7 +808,7 @@ const level2 = {
         this.state.breakState = "started"
         this.state.breakStartTime = this.now()
         this.state.showBreakText = false
-        this.clearTrialTimers()
+        if (typeof DoggoNogoCore !== "undefined") DoggoNogoCore.clearTrialTimers(this.state)
         this.state.stimulus.visible = false
         this.state.stimulus.exiting = false
         if (this.state.phaseIndex === 1) {
@@ -886,13 +835,13 @@ const level2 = {
     },
     endLevel: function () {
         this.state.gameState = "done"
-        DoggoNogoShared.safePlay(this.assets.soundLevelUp)
+        DoggoNogoCore.safePlay(this.assets.soundLevelUp)
         try {
             this.assets.soundBackground.pause()
             this.assets.soundBackground.currentTime = 0
         } catch (e) {}
         document.removeEventListener("keydown", this.boundKeyDownHandler)
-        this.clearTrialTimers()
+        if (typeof DoggoNogoCore !== "undefined") DoggoNogoCore.clearTrialTimers(this.state)
         if (this.state.showContinueButton) {
             this.state.endOverlayVisible = true
             return
@@ -940,10 +889,10 @@ const level2 = {
         }
         if (!this.isResponseKey(e.key)) return
         if (!this.state.stimulus.visible && !this.state.stimulus.exiting) {
-            this.clearTrialTimers()
+            if (typeof DoggoNogoCore !== "undefined") DoggoNogoCore.clearTrialTimers(this.state)
             const nowISO = new Date().toISOString()
             const thresholdUsed = this.getEffectiveThreshold()
-            DoggoNogoShared.safePlay(this.assets.soundError)
+            DoggoNogoCore.safePlay(this.assets.soundError)
             this.finishTrial({
                 type: TrialTypes.EARLY,
                 points: -this.params.minScore,
@@ -957,7 +906,7 @@ const level2 = {
         if (this.state.stimulus.visible && !this.state.stimulus.exiting) {
             const reactionTime = this.now() - this.state.startTime
             if (this.state.currentTrialTimeoutId) clearTimeout(this.state.currentTrialTimeoutId)
-            this.startStimulusExit("catch")
+            if (typeof DoggoNogoCore !== "undefined") DoggoNogoCore.startStimulusExit(this.state, () => this.now(), "catch")
             const threshold = this.getEffectiveThreshold()
             const trialMaxRT = this.state.maxRT || 2 * this.state.medianRT
             const correct =
@@ -966,7 +915,7 @@ const level2 = {
             if (!correct) {
                 const nowISO = new Date().toISOString()
                 // Error penalty: -minScore/2
-                DoggoNogoShared.safePlay(this.assets.soundError)
+                DoggoNogoCore.safePlay(this.assets.soundError)
                 // Override exit style to mimic timeout sideways drift
                 if (this.state.stimulus.exiting) {
                     this.state.stimulus.exitType = "timeout"
@@ -988,7 +937,7 @@ const level2 = {
             if (reactionTime > threshold) {
                 const include = reactionTime <= trialMaxRT
                 const nowISO = new Date().toISOString()
-                DoggoNogoShared.safePlay(this.assets.soundSlow)
+                DoggoNogoCore.safePlay(this.assets.soundSlow)
                 this.finishTrial({
                     type: TrialTypes.SLOW,
                     // Slow correct response award: +minScore/2
@@ -1009,7 +958,7 @@ const level2 = {
             const points = this.params.minScore + nRT * (this.params.maxScore - this.params.minScore)
             this.jump(reactionTime)
             const nowISO = new Date().toISOString()
-            DoggoNogoShared.safePlay(this.assets.soundFast)
+            DoggoNogoCore.safePlay(this.assets.soundFast)
             this.finishTrial({
                 type: TrialTypes.FAST,
                 points,
@@ -1023,45 +972,14 @@ const level2 = {
         }
     },
     showScoreFeedback: function (text) {
-        this.state.scoreText = text
-        this.state.scoreTextVisible = true
-        if (this.state.scoreTextTimeout) clearTimeout(this.state.scoreTextTimeout)
-        this.state.scoreTextTimeout = setTimeout(() => {
-            this.state.scoreTextVisible = false
-        }, 1000)
+        if (typeof DoggoNogoCore !== "undefined") DoggoNogoCore.showScoreFeedback(this, text)
     },
-    clearTrialTimers: function () {
-        if (typeof DoggoNogoShared !== "undefined") DoggoNogoShared.clearTrialTimers(this.state)
-        else {
-            if (this.state.pendingStimulusTimeoutId) {
-                clearTimeout(this.state.pendingStimulusTimeoutId)
-                this.state.pendingStimulusTimeoutId = null
-            }
-            if (this.state.currentTrialTimeoutId) {
-                clearTimeout(this.state.currentTrialTimeoutId)
-                this.state.currentTrialTimeoutId = null
-            }
-        }
-    },
-    startStimulusExit: function (type) {
-        if (typeof DoggoNogoShared !== "undefined") DoggoNogoShared.startStimulusExit(this.state, () => this.now(), type)
-        else {
-            const stim = this.state.stimulus
-            stim.visible = false
-            stim.exiting = true
-            stim.exitType = type
-            stim.exitStartTime = this.now()
-            stim.exitInitialX = stim.x
-            stim.exitInitialY = stim.y
-            stim.exitInitialWidth = stim.width
-            stim.exitInitialHeight = stim.height
-        }
-    },
+    // Removed local clearTrialTimers and startStimulusExit (handled by DoggoNogoCore)
     isResponseKey: function (key) {
         return key === "ArrowLeft" || key === "ArrowRight"
     },
     getTrialTypeLabel: function (type) {
-        if (typeof DoggoNogoShared !== "undefined") return DoggoNogoShared.getTrialTypeLabel(type)
+        if (typeof DoggoNogoCore !== "undefined") return DoggoNogoCore.getTrialTypeLabel(type)
         return type === "timeout" ? "Timeout" : type.charAt(0).toUpperCase() + type.slice(1)
     },
 }
