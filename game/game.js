@@ -139,6 +139,29 @@
     }
     if (typeof global.DoggoNogoCore === "undefined") {
         global.DoggoNogoCore = {
+            // Render a unified white loading screen (standalone & jsPsych use the same look)
+            renderLoadingScreen(target, message = "Loading the game...") {
+                // target can be a canvas or a DOM element container
+                if (!target) return
+                if (target instanceof HTMLCanvasElement) {
+                    const ctx = target.getContext("2d")
+                    if (!ctx) return
+                    ctx.save()
+                    ctx.fillStyle = "#fff"
+                    ctx.fillRect(0, 0, target.width, target.height)
+                    ctx.fillStyle = "#000"
+                    ctx.textAlign = "center"
+                    // Simple responsive font size
+                    const fs = Math.round(Math.min(target.width, target.height) * 0.035)
+                    ctx.font = `${fs}px Arial`
+                    ctx.fillText(message, target.width / 2, target.height / 2)
+                    ctx.restore()
+                } else if (target instanceof HTMLElement) {
+                    target.innerHTML =
+                        `<div style="display:flex;align-items:center;justify-content:center;min-height:60vh;background:#fff;font:20px Arial;color:#000;">` +
+                        `<div style="text-align:center;">${message}</div></div>`
+                }
+            },
             safePlay(audioEl, reset = true) {
                 if (!audioEl) return
                 try {

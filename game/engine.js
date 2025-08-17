@@ -20,7 +20,9 @@
                 levelParams,
                 introSequence,
                 skipCover,
-                suppressLoading,
+                // After loading the requested level, also proactively load any other known level objects (level1/level2/etc.)
+                // so subsequent transitions have zero load time or flashes.
+                preloadOtherLevels = true,
                 // Marker (formerly photodiode) visual trigger options (optional; defaults disabled)
                 markerEnabled = false,
                 markerFlashDuration = 100, // ms the square turns black after a trigger
@@ -47,18 +49,53 @@
                 Object.assign(this.level.params, levelParams)
             }
 
-            // Show loading screen only if level not yet preloaded
-            if (!this.level._loaded && !suppressLoading) {
-                if (typeof DoggoNogoUI !== "undefined" && DoggoNogoUI.showLoading) {
-                    DoggoNogoUI.showLoading(this.canvas)
+            // Always show unified loading screen only if this level not yet loaded AND global preload will run now.
+            if (!this.level._loaded && !global.__DoggoGlobalPreloaded) {
+                if (typeof DoggoNogoCore !== "undefined" && DoggoNogoCore.renderLoadingScreen) {
+                    DoggoNogoCore.renderLoadingScreen(this.canvas, "Loading the game...")
+                } else if (typeof DoggoNogoUI !== "undefined" && DoggoNogoUI.showLoading) {
+                    DoggoNogoUI.showLoading(this.canvas, "Loading the game...")
                 }
             }
 
             try {
-                // 1. Load assets (skip if already preloaded)
+                // 0. One-time global asset preload (merged manifest) so host (jsPsych/standalone) need not orchestrate.
+                if (!global.__DoggoGlobalPreloaded && typeof DoggoNogoCore !== "undefined" && DoggoNogoCore.preloadAll) {
+                    try {
+                        await DoggoNogoCore.preloadAll({ basePath: options.assetBasePath })
+                    } catch (e) {
+                        console.warn("Global preloadAll failed (continuing):", e)
+                    }
+                    global.__DoggoGlobalPreloaded = true
+                }
+
+                // 1. Level-specific assets (skip if already loaded externally)
                 if (!this.level._loaded) {
                     await this.level.load(this.canvas, { assetBasePath: options.assetBasePath })
                     this.level._loaded = true
+                }
+
+                // 1b. Background preload of other defined levels (one-time) so later starts are instantaneous.
+                if (preloadOtherLevels && !global.__DoggoOtherLevelsPreloaded) {
+                    try {
+                        const candidates = []
+                        if (global.level1 && global.level1 !== this.level && !global.level1._loaded) candidates.push(global.level1)
+                        if (global.level2 && global.level2 !== this.level && !global.level2._loaded) candidates.push(global.level2)
+                        // Future levels could be appended here.
+                        if (candidates.length) {
+                            await Promise.all(
+                                candidates.map((lvl) =>
+                                    lvl
+                                        .load(this.canvas, { assetBasePath: options.assetBasePath })
+                                        .then(() => (lvl._loaded = true))
+                                        .catch((e) => console.warn("Background level preload failed", e))
+                                )
+                            )
+                        }
+                    } catch (e) {
+                        console.warn("Background preload exception", e)
+                    }
+                    global.__DoggoOtherLevelsPreloaded = true
                 }
 
                 // Optionally expand canvas to current viewport size (one-time here; resize listener can adjust later)

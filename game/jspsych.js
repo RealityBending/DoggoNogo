@@ -1,19 +1,17 @@
 /*
-  Lightweight jsPsych integration helpers for the Doggo/Nogo game.
-  Usage (in HTML):
-    <script src="https://unpkg.com/@jspsych/plugin-preload"></script>
-    <script src="https://unpkg.com/@jspsych/plugin-call-function"></script>
-    <script src="game/levels/level1.js"></script>
-    <script src="game/jspsych_integration.js"></script>
-
-    Then build timeline with DoggoNogo.create* helpers.
+    Lightweight jsPsych integration helpers for the Doggo/Nogo game.
+    The engine now performs global + level preloading internally, so this layer only
+    needs to create jsPsych call-function trials for running levels.
 */
 
 ;(function (global) {
     // Inline asset manifest used for preload defaults
     if (!global.DoggoNogoAssets) {
         global.DoggoNogoAssets = {
-            shared: { images: ["cover1_noText.png", "text.png"], audio: ["sound_levelup.mp3", "sound_phasecomplete.mp3"] },
+            shared: {
+                images: ["cover1_noText.png", "text.png"],
+                audio: ["sound_levelup.mp3", "sound_phasecomplete.mp3", "sound_start.mp3"],
+            },
             level1: {
                 images: [
                     "level1/player_1.png",
@@ -23,6 +21,7 @@
                     "level1/background.png",
                     "level1/feedback_slow1.png",
                     "level1/feedback_late1.png",
+                    "level1/feedback_early1.png",
                     "level1/feedback_fast1.png",
                     "level1/feedback_fast2.png",
                     "level1/feedback_fast3.png",
@@ -38,7 +37,6 @@
                     "level1/sound_intro_dogwhining.mp3",
                 ],
             },
-            // Level 2 currently has no audio and no feedback images; list only needed images
             level2: {
                 images: [
                     "level2/player_1.png",
@@ -47,8 +45,21 @@
                     "level2/stimulus_1.png",
                     "level2/stimulus_2.png",
                     "level2/background.png",
+                    "level2/feedback_slow1.png",
+                    "level2/feedback_late1.png",
+                    "level2/feedback_fast1.png",
+                    "level2/feedback_fast2.png",
+                    "level2/feedback_fast3.png",
+                    "level2/feedback_error1.png",
+                    "level2/feedback_early1.png",
                 ],
-                audio: [],
+                audio: [
+                    "level2/sound_evolve.mp3",
+                    "level2/sound_error.mp3",
+                    "level2/sound_fast.mp3",
+                    "level2/sound_slow.mp3",
+                    "level2/Fishbone.mp3",
+                ],
             },
         }
     }
@@ -77,55 +88,7 @@
         return { width, height }
     }
 
-    // Build default lists from manifest (if present)
-    function getDefaultLevel1Lists(assetBasePath) {
-        const manifest = global.DoggoNogoAssets
-        if (!manifest || !manifest.level1) {
-            return { images: [], audio: [] }
-        }
-        return {
-            images: manifest.level1.images.slice(),
-            audio: manifest.level1.audio.concat(manifest.shared ? manifest.shared.audio : []),
-        }
-    }
-    function getDefaultLevel2Lists(assetBasePath) {
-        const manifest = global.DoggoNogoAssets
-        if (!manifest || !manifest.level2) return { images: [], audio: [] }
-        return {
-            images: manifest.level2.images.slice(),
-            // Include shared audio (now also phasecomplete + levelup) so phase transition sound is available in level 2.
-            audio: manifest.shared ? manifest.shared.audio.slice() : [],
-        }
-    }
-
     const Integration = {
-        // Preload images/audio to reduce in-game stalls. Pass a base path and asset lists.
-        createPreloadTrial: function ({ assetBasePath = "game/assets/", images = [], audio = [] } = {}) {
-            const base = normalizeBasePath(assetBasePath)
-            const imagePaths = images.map((p) => base + p)
-            const audioPaths = audio.map((p) => base + p)
-            return {
-                type: jsPsychPreload,
-                auto_preload: false,
-                images: imagePaths,
-                audio: audioPaths,
-                // optional: show progress bar
-                show_detailed_errors: true,
-                message: "Loading assets...",
-            }
-        },
-        // Ensure DoggoNogoCore.preloadAll runs inside jsPsych flow (so phasecomplete audio is primed similarly to standalone)
-        createCorePreloadCall: function ({ assetBasePath = "game/assets/" } = {}) {
-            return {
-                type: jsPsychCallFunction,
-                func: () => {
-                    if (typeof DoggoNogoCore !== "undefined" && typeof DoggoNogoCore.preloadAll === "function") {
-                        return DoggoNogoCore.preloadAll({ basePath: normalizeBasePath(assetBasePath) })
-                    }
-                },
-            }
-        },
-
         // The game trial using call-function. Keeps the game decoupled from jsPsych.
         createGameTrial: function ({
             width, // optional; if omitted we'll auto-compute maintaining 1792x1024 aspect
@@ -138,11 +101,11 @@
             trialsNumber,
             introSequence = null,
             skipCover = false,
-            suppressLoading = false,
             markerEnabled = false,
             markerFlashDuration = 100,
             markerSize = 60,
             fullscreen = false,
+            initialFillColor = "#000", // color to immediately paint when suppressLoading to avoid white flash
         } = {}) {
             return {
                 type: jsPsychCallFunction,
@@ -179,6 +142,20 @@
                     canvas.style.border = fullscreen ? "0" : "1px solid #000"
                     el.appendChild(canvas)
 
+                    // If we're suppressing the engine's own loading screen, immediately paint a solid background
+                    // to avoid a brief white flash while assets load (especially between level1->level2).
+                    if (initialFillColor) {
+                        try {
+                            const ctxPre = canvas.getContext("2d")
+                            ctxPre.save()
+                            ctxPre.fillStyle = initialFillColor
+                            ctxPre.fillRect(0, 0, canvas.width, canvas.height)
+                            ctxPre.restore()
+                            // Also set CSS background for consistency during resize before first draw.
+                            canvas.style.background = initialFillColor
+                        } catch (e) {}
+                    }
+
                     const level = levelGetter()
                     if (!level) {
                         console.error("Level object not found. Ensure your level script is loaded.")
@@ -193,7 +170,7 @@
                         continueHint: "Press SPACE to continue",
                         introSequence,
                         skipCover,
-                        suppressLoading,
+                        preloadOtherLevels: true,
                         markerEnabled,
                         markerFlashDuration,
                         markerSize,
@@ -230,11 +207,7 @@
 
         // Convenience: build a complete Level 1 sequence with optional preload and a single game trial
         level1: function ({
-            includePreload = false,
             assetBasePath = "game/assets/",
-            preloadImages,
-            preloadAudio,
-            // Optional: override sizing, else responsive 1792x1024 preserved
             width,
             height,
             maintainAspect = true,
@@ -243,32 +216,14 @@
             markerFlashDuration = 100,
             markerSize = 60,
             fullscreen = false,
-            showCover = true, // default matches standalone: show cover before intro
+            showCover = true,
         } = {}) {
-            const trials = []
-            const base = normalizeBasePath(assetBasePath)
-            const defaults = getDefaultLevel1Lists(base)
-            const defaultImages = defaults.images
-            const defaultAudio = defaults.audio
-
-            if (includePreload) {
-                trials.push(
-                    this.createPreloadTrial({
-                        assetBasePath: base,
-                        images: preloadImages || defaultImages,
-                        audio: preloadAudio || defaultAudio,
-                    })
-                )
-                trials.push(this.createCorePreloadCall({ assetBasePath: base }))
-            }
-
-            // Single in-canvas game trial that includes native-like start and score screens
-            trials.push(
+            return [
                 this.createGameTrial({
                     width,
                     height,
                     maintainAspect,
-                    assetBasePath: base,
+                    assetBasePath: normalizeBasePath(assetBasePath),
                     trialsNumber,
                     introSequence: typeof level1IntroSequence !== "undefined" ? level1IntroSequence : null,
                     skipCover: !showCover,
@@ -276,16 +231,11 @@
                     markerFlashDuration,
                     markerSize,
                     fullscreen,
-                })
-            )
-
-            return trials
+                }),
+            ]
         },
         level2: function ({
-            includePreload = false,
             assetBasePath = "game/assets/",
-            preloadImages,
-            preloadAudio,
             width,
             height,
             maintainAspect = true,
@@ -294,42 +244,26 @@
             markerFlashDuration = 100,
             markerSize = 60,
             fullscreen = false,
-            showCover = false, // default skip like standalone chained level
+            showCover = false,
+            initialFillColor = "#000",
         } = {}) {
-            const trials = []
-            const base = normalizeBasePath(assetBasePath)
-            const defaults = getDefaultLevel2Lists(base)
-            const defaultImages = defaults.images
-            const defaultAudio = defaults.audio // currently empty
-            if (includePreload) {
-                trials.push(
-                    this.createPreloadTrial({
-                        assetBasePath: base,
-                        images: preloadImages || defaultImages,
-                        audio: preloadAudio || defaultAudio,
-                    })
-                )
-                trials.push(this.createCorePreloadCall({ assetBasePath: base }))
-            }
-            trials.push(
+            return [
                 this.createGameTrial({
                     width,
                     height,
                     maintainAspect,
-                    assetBasePath: base,
+                    assetBasePath: normalizeBasePath(assetBasePath),
                     trialsNumber,
                     levelGetter: () => (typeof level2 !== "undefined" ? level2 : undefined),
                     introSequence: typeof level2IntroSequence !== "undefined" ? level2IntroSequence : null,
-                    skipCover: !showCover, // normally true
-                    // Hide loading splash between level 1 and 2 (standalone already preloads/suppresses)
-                    suppressLoading: true,
+                    skipCover: !showCover,
                     markerEnabled,
                     markerFlashDuration,
                     markerSize,
                     fullscreen,
-                })
-            )
-            return trials
+                    initialFillColor,
+                }),
+            ]
         },
     }
 
