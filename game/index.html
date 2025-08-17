@@ -147,6 +147,14 @@
                     typeof level1 !== "undefined" &&
                     typeof DoggoNogoUI !== "undefined"
                 ) {
+                    // Unified global preload of ALL declared assets (shared + levels) before any level run.
+                    if (typeof DoggoNogoPreloadAll === "function") {
+                        try {
+                            await DoggoNogoPreloadAll("assets/")
+                        } catch (preErr) {
+                            console.warn("Global preloadAll failed (continuing anyway):", preErr)
+                        }
+                    }
                     await preloadLevels()
                     runLevel1()
                 } else {

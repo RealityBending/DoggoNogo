@@ -13,7 +13,7 @@
     // Inline asset manifest used for preload defaults
     if (!global.DoggoNogoAssets) {
         global.DoggoNogoAssets = {
-            shared: { images: ["cover1_noText.png", "text.png"], audio: ["sound_levelup.mp3"] },
+            shared: { images: ["cover1_noText.png", "text.png"], audio: ["sound_levelup.mp3", "sound_phasecomplete.mp3"] },
             level1: {
                 images: [
                     "level1/player_1.png",
@@ -93,7 +93,8 @@
         if (!manifest || !manifest.level2) return { images: [], audio: [] }
         return {
             images: manifest.level2.images.slice(),
-            audio: manifest.shared ? manifest.shared.audio.slice() : [], // only shared audio (level2 silent gameplay)
+            // Include shared audio (now also phasecomplete + levelup) so phase transition sound is available in level 2.
+            audio: manifest.shared ? manifest.shared.audio.slice() : [],
         }
     }
 
@@ -111,6 +112,17 @@
                 // optional: show progress bar
                 show_detailed_errors: true,
                 message: "Loading assets...",
+            }
+        },
+        // Ensure DoggoNogoCore.preloadAll runs inside jsPsych flow (so phasecomplete audio is primed similarly to standalone)
+        createCorePreloadCall: function ({ assetBasePath = "game/assets/" } = {}) {
+            return {
+                type: jsPsychCallFunction,
+                func: () => {
+                    if (typeof DoggoNogoCore !== "undefined" && typeof DoggoNogoCore.preloadAll === "function") {
+                        return DoggoNogoCore.preloadAll({ basePath: normalizeBasePath(assetBasePath) })
+                    }
+                },
             }
         },
 
@@ -231,6 +243,7 @@
             markerFlashDuration = 100,
             markerSize = 60,
             fullscreen = false,
+            showCover = true, // default matches standalone: show cover before intro
         } = {}) {
             const trials = []
             const base = normalizeBasePath(assetBasePath)
@@ -246,6 +259,7 @@
                         audio: preloadAudio || defaultAudio,
                     })
                 )
+                trials.push(this.createCorePreloadCall({ assetBasePath: base }))
             }
 
             // Single in-canvas game trial that includes native-like start and score screens
@@ -257,7 +271,7 @@
                     assetBasePath: base,
                     trialsNumber,
                     introSequence: typeof level1IntroSequence !== "undefined" ? level1IntroSequence : null,
-                    skipCover: false,
+                    skipCover: !showCover,
                     markerEnabled,
                     markerFlashDuration,
                     markerSize,
@@ -280,6 +294,7 @@
             markerFlashDuration = 100,
             markerSize = 60,
             fullscreen = false,
+            showCover = false, // default skip like standalone chained level
         } = {}) {
             const trials = []
             const base = normalizeBasePath(assetBasePath)
@@ -294,6 +309,7 @@
                         audio: preloadAudio || defaultAudio,
                     })
                 )
+                trials.push(this.createCorePreloadCall({ assetBasePath: base }))
             }
             trials.push(
                 this.createGameTrial({
@@ -304,7 +320,7 @@
                     trialsNumber,
                     levelGetter: () => (typeof level2 !== "undefined" ? level2 : undefined),
                     introSequence: typeof level2IntroSequence !== "undefined" ? level2IntroSequence : null,
-                    skipCover: true, // skip start/cover for subsequent level
+                    skipCover: !showCover, // normally true
                     // Hide loading splash between level 1 and 2 (standalone already preloads/suppresses)
                     suppressLoading: true,
                     markerEnabled,

@@ -708,6 +708,18 @@ const level2 = {
                 Difficulty: this.state.stimulus.difficulty || "NA",
                 ResponseKey: outcome.responseKey || "NA",
                 Correct: typeof outcome.correct === "boolean" ? (outcome.correct ? 1 : 0) : "NA",
+                StimulusX:
+                    this.state.canvas && this.state.canvas.width
+                        ? ((typeof outcome.stimulusX === "number" ? outcome.stimulusX : this.state.stimulus.x) / this.state.canvas.width) *
+                          100
+                        : null,
+                StimulusY:
+                    this.state.canvas && this.state.canvas.height
+                        ? ((typeof outcome.stimulusY === "number" ? outcome.stimulusY : this.state.stimulus.y) / this.state.canvas.height) *
+                          100
+                        : null,
+                CanvasWidth: this.state.canvas ? this.state.canvas.width : null,
+                CanvasHeight: this.state.canvas ? this.state.canvas.height : null,
             })
         }
         this._checkForPhaseOrLevelEnd()
@@ -808,6 +820,7 @@ const level2 = {
         this.state.breakState = "started"
         this.state.breakStartTime = this.now()
         this.state.showBreakText = false
+        if (typeof DoggoNogoCore !== "undefined") DoggoNogoCore.playPhaseComplete(this)
         if (typeof DoggoNogoCore !== "undefined") DoggoNogoCore.clearTrialTimers(this.state)
         this.state.stimulus.visible = false
         this.state.stimulus.exiting = false

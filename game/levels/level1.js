@@ -922,6 +922,19 @@ const level1 = {
                         : outcome.type === TrialTypes.FAST || outcome.type === TrialTypes.SLOW
                         ? 1
                         : 0,
+                // Normalized stimulus position (percent of canvas). Canvas size logged for reconstruction.
+                StimulusX:
+                    this.state.canvas && this.state.canvas.width
+                        ? ((typeof outcome.stimulusX === "number" ? outcome.stimulusX : this.state.stimulus.x) / this.state.canvas.width) *
+                          100
+                        : null,
+                StimulusY:
+                    this.state.canvas && this.state.canvas.height
+                        ? ((typeof outcome.stimulusY === "number" ? outcome.stimulusY : this.state.stimulus.y) / this.state.canvas.height) *
+                          100
+                        : null,
+                CanvasWidth: this.state.canvas ? this.state.canvas.width : null,
+                CanvasHeight: this.state.canvas ? this.state.canvas.height : null,
             })
         }
     },
@@ -1051,6 +1064,8 @@ const level1 = {
         this.state.breakState = "started"
         this.state.breakStartTime = this.now()
         this.state.showBreakText = false
+        // Shared phase completion sound
+        if (typeof DoggoNogoCore !== "undefined") DoggoNogoCore.playPhaseComplete(this)
 
         // Stop any pending timers and hide stimulus
         if (this.state.pendingStimulusTimeoutId) {

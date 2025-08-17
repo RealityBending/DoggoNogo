@@ -108,10 +108,34 @@
     global.DoggoNogoUI = UI
 })(typeof window !== "undefined" ? window : globalThis)
 
+// Optional automatic preload for standalone (non-jsPsych) if desired.
+;(function (global) {
+    if (typeof document !== "undefined" && global.DoggoNogoCore && global.DoggoNogoAssets) {
+        // Provide a manual hook only; avoid auto to not delay first paint unnecessarily.
+        global.DoggoNogoPreloadAll = function (basePath) {
+            return global.DoggoNogoCore.preloadAll({ basePath: basePath || "assets/" })
+        }
+    }
+})(typeof window !== "undefined" ? window : globalThis)
+
 // Embedded shared helpers
 ;(function (global) {
     if (typeof global.DoggoNogoTrialTypes === "undefined") {
         global.DoggoNogoTrialTypes = { FAST: "fast", SLOW: "slow", EARLY: "early", TIMEOUT: "timeout", ERROR: "error" }
+    }
+    function mergeManifests(manifest) {
+        const out = { images: [], audio: [] }
+        if (!manifest) return out
+        const pushUniq = (arr, v) => {
+            if (arr.indexOf(v) === -1) arr.push(v)
+        }
+        ;["shared", "level1", "level2", "level3"].forEach((k) => {
+            if (manifest[k]) {
+                ;(manifest[k].images || []).forEach((p) => pushUniq(out.images, p))
+                ;(manifest[k].audio || []).forEach((p) => pushUniq(out.audio, p))
+            }
+        })
+        return out
     }
     if (typeof global.DoggoNogoCore === "undefined") {
         global.DoggoNogoCore = {
@@ -121,6 +145,42 @@
                     if (reset) audioEl.currentTime = 0
                     audioEl.play()
                 } catch (e) {}
+            },
+            // General asset preloader for standalone mode.
+            // Accepts a basePath and optional manifest object ({ images:[], audio:[] }).
+            // Returns a Promise that resolves when all listed assets are loaded (best-effort).
+            preloadAll({ basePath = "assets/", manifest } = {}) {
+                if (!basePath.endsWith("/")) basePath += "/"
+                const m = manifest || (global.DoggoNogoAssets ? mergeManifests(global.DoggoNogoAssets) : { images: [], audio: [] })
+                const imagePromises = (m.images || []).map(
+                    (rel) =>
+                        new Promise((res) => {
+                            try {
+                                const img = new Image()
+                                img.onload = () => res()
+                                img.onerror = () => res()
+                                img.src = basePath + rel
+                            } catch (e) {
+                                res()
+                            }
+                        })
+                )
+                const audioPromises = (m.audio || []).map(
+                    (rel) =>
+                        new Promise((res) => {
+                            try {
+                                const a = new Audio()
+                                a.oncanplaythrough = () => res()
+                                a.onerror = () => res()
+                                a.src = basePath + rel
+                                // Optionally store specific shared audios globally for reuse
+                                if (rel.endsWith("sound_phasecomplete.mp3")) global.__DoggoPhaseCompleteAudio = a
+                            } catch (e) {
+                                res()
+                            }
+                        })
+                )
+                return Promise.all([...imagePromises, ...audioPromises])
             },
             // Draw the top progress bar (3 segments) based on current score and phase targets.
             drawProgressBar(level, opts = {}) {
@@ -288,6 +348,30 @@
                     clearTimeout(state.currentTrialTimeoutId)
                     state.currentTrialTimeoutId = null
                 }
+            },
+            ensureSharedPhaseCompleteSound(levelObj, basePath) {
+                if (!levelObj) return null
+                if (!global.__DoggoPhaseCompleteAudio && typeof Audio !== "undefined") {
+                    try {
+                        const a = new Audio()
+                        // basePath expected to end with '/'
+                        const base = basePath || ""
+                        a.src = base + "sound_phasecomplete.mp3"
+                        global.__DoggoPhaseCompleteAudio = a
+                    } catch (e) {}
+                }
+                return global.__DoggoPhaseCompleteAudio || null
+            },
+            playPhaseComplete(levelObj) {
+                const shared = this.ensureSharedPhaseCompleteSound(
+                    levelObj,
+                    levelObj?.params?.assetBasePath
+                        ? levelObj.params.assetBasePath.endsWith("/")
+                            ? levelObj.params.assetBasePath
+                            : levelObj.params.assetBasePath + "/"
+                        : (levelObj && levelObj.assets && levelObj.assets.basePath) || "assets/"
+                )
+                if (shared) this.safePlay(shared, true)
             },
             startStimulusExit(state, nowFn, type) {
                 if (!state || !state.stimulus || !nowFn) return
