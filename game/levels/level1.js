@@ -218,6 +218,7 @@ const level1 = {
         scoreText: "",
         scoreTextVisible: false,
         scoreTextTimeout: null,
+        scoreTextPoints: 0, // raw delta for last score change (for dynamic color/size)
         // Phase progression state (3 phases with 2 breaks)
         phaseIndex: 0, // 0: phase1 active; 1: phase2 active; 2: phase3 active (final)
         inBreak: false, // true when waiting for SPACE between phases
@@ -564,7 +565,7 @@ const level1 = {
         // Redraw the canvas on each frame
         this.clearCanvas()
         this.drawBackground()
-        this.drawProgressBar()
+        DoggoNogoShared.drawProgressBar(this)
         this.drawPlayer()
         this.drawStimulus()
         this.drawScoreFeedback()
@@ -589,56 +590,10 @@ const level1 = {
     },
 
     /**
-     * Draws the progress bar at the top of the screen.
-     */
-    drawProgressBar: function () {
-        const barWidth = this.state.canvas.width * 0.5 // 50% of canvas width
-        const barHeight = this.state.canvas.height * 0.033 // 3.3% of canvas height
-        const x = this.state.canvas.width / 2 - barWidth / 2
-        const y = this.state.canvas.height * 0.033 // 3.3% from the top
-
-        // Draw background bar
-        this.state.ctx.fillStyle = "#555"
-        this.state.ctx.fillRect(x, y, barWidth, barHeight)
-
-        // Segment setup (3 segments for 3 phases)
-        const segWidth = barWidth / 3
-        const phaseTargets = this.getPhaseTargets()
-        const segScores = [phaseTargets[0], phaseTargets[1], phaseTargets[2]]
-        const colors = ["#4CAF50", "#00BCD4", "#2196F3"] // green, cyan, blue
-
-        // Draw each segment according to score progress
-        for (let i = 0; i < 3; i++) {
-            const segStartScore = i === 0 ? 0 : segScores.slice(0, i).reduce((a, b) => a + b, 0)
-            const segEndScore = segStartScore + segScores[i]
-            const raw = (this.state.score - segStartScore) / (segEndScore - segStartScore)
-            const frac = Math.min(1, Math.max(0, raw))
-            if (frac <= 0) continue
-            this.state.ctx.fillStyle = colors[i]
-            this.state.ctx.fillRect(x + i * segWidth, y, segWidth * frac, barHeight)
-        }
-
-        // Border
-        this.state.ctx.strokeStyle = "#000"
-        this.state.ctx.strokeRect(x, y, barWidth, barHeight)
-    },
-
-    /**
      * Draws the score feedback text when a correct response is made.
      */
     drawScoreFeedback: function () {
-        if (this.state.scoreTextVisible) {
-            const barWidth = this.state.canvas.width * 0.5
-            const barHeight = this.state.canvas.height * 0.033
-            const barX = this.state.canvas.width / 2 - barWidth / 2
-            const barY = this.state.canvas.height * 0.033
-            const textX = barX + barWidth + 10 // Position text to the right of the bar
-            const textY = barY + barHeight * 0.75
-
-            this.state.ctx.fillStyle = "white"
-            this.state.ctx.font = `${this.state.canvas.height * 0.03}px Arial` // Font size relative to canvas height
-            this.state.ctx.fillText(this.state.scoreText, textX, textY)
-        }
+        DoggoNogoShared.drawScoreFeedback(this)
     },
 
     /**
@@ -666,23 +621,7 @@ const level1 = {
      * Tints preserve alpha: red applied only where sprite has opacity.
      */
     getTintedPlayerSprite: function (img, color) {
-        if (!img || !img.naturalWidth) return img
-        // Do not cache dynamic alpha variants excessively: round alpha to 2 decimals in key
-        const key =
-            img.src +
-            "|" +
-            color.replace(/(rgba\([^,]+,[^,]+,[^,]+,)([0-9]*\.?[0-9]+)\)/, (m, pre, a) => pre + parseFloat(a).toFixed(2) + ")")
-        if (this.state.tintedSpriteCache[key]) return this.state.tintedSpriteCache[key]
-        const c = document.createElement("canvas")
-        c.width = img.naturalWidth
-        c.height = img.naturalHeight
-        const g = c.getContext("2d")
-        g.drawImage(img, 0, 0)
-        g.globalCompositeOperation = "source-atop"
-        g.fillStyle = color
-        g.fillRect(0, 0, c.width, c.height)
-        this.state.tintedSpriteCache[key] = c
-        return c
+        return DoggoNogoShared.getTintedSprite(this, img, color)
     },
 
     /**
@@ -1457,7 +1396,8 @@ const level1 = {
         }
     },
     showScoreDelta: function (points) {
-        const sign = points > 0 ? "+" : ""
+        const sign = points > 0 ? "+" : points < 0 ? "" : "" // negatives already include '-'
+        this.state.scoreTextPoints = points
         this.showScoreFeedback(`${sign}${Math.round(points)}`)
     },
     clearTrialTimers: function () {

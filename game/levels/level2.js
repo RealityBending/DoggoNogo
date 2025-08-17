@@ -30,10 +30,9 @@
  *
  * Phase Targets (Simplified)
  * --------------------------
- * Same constant per-phase target logic as previously documented:
- *   perPhaseTrials = ceil(trialsNumber / 3)
- *   phaseTarget    = perPhaseTrials * minScore
- * All three phases share this same phaseTarget, with phase floor scores enforcing progression.
+ * perPhaseTrials = ceil(trialsNumber / 3)
+ * phaseTarget    = perPhaseTrials * minScore (same for all three phases)
+ * Phase floor scores enforce progression.
  */
 
 if (typeof TrialTypes === "undefined") {
@@ -143,6 +142,7 @@ const level2 = {
         scoreText: "",
         scoreTextVisible: false,
         scoreTextTimeout: null,
+        scoreTextPoints: 0,
         phaseIndex: 0,
         inBreak: false,
         breakState: "idle",
@@ -424,7 +424,7 @@ const level2 = {
     draw: function () {
         this.clearCanvas()
         this.drawBackground()
-        this.drawProgressBar()
+        DoggoNogoShared.drawProgressBar(this)
         this.drawPlayer()
         this.drawStimulus()
         this.drawScoreFeedback()
@@ -445,39 +445,9 @@ const level2 = {
     drawBackground: function () {
         this.state.ctx.drawImage(this.assets.imgBackground, 0, 0, this.state.canvas.width, this.state.canvas.height)
     },
-    drawProgressBar: function () {
-        const barWidth = this.state.canvas.width * 0.5
-        const barHeight = this.state.canvas.height * 0.033
-        const x = this.state.canvas.width / 2 - barWidth / 2
-        const y = this.state.canvas.height * 0.033
-        this.state.ctx.fillStyle = "#555"
-        this.state.ctx.fillRect(x, y, barWidth, barHeight)
-        const segWidth = barWidth / 3
-        const phaseTargets = this.getPhaseTargets()
-        const colors = ["#4CAF50", "#00BCD4", "#2196F3"]
-        for (let i = 0; i < 3; i++) {
-            const startScore = i === 0 ? 0 : phaseTargets.slice(0, i).reduce((a, b) => a + b, 0)
-            const endScore = startScore + phaseTargets[i]
-            const raw = (this.state.score - startScore) / (endScore - startScore)
-            const frac = Math.min(1, Math.max(0, raw))
-            if (frac <= 0) continue
-            this.state.ctx.fillStyle = colors[i]
-            this.state.ctx.fillRect(x + i * segWidth, y, segWidth * frac, barHeight)
-        }
-        this.state.ctx.strokeStyle = "#000"
-        this.state.ctx.strokeRect(x, y, barWidth, barHeight)
-    },
+    // Progress bar drawing handled by DoggoNogoShared.drawProgressBar
     drawScoreFeedback: function () {
-        if (!this.state.scoreTextVisible) return
-        const barWidth = this.state.canvas.width * 0.5
-        const barHeight = this.state.canvas.height * 0.033
-        const barX = this.state.canvas.width / 2 - barWidth / 2
-        const barY = this.state.canvas.height * 0.033
-        const textX = barX + barWidth + 10
-        const textY = barY + barHeight * 0.75
-        this.state.ctx.fillStyle = "white"
-        this.state.ctx.font = `${this.state.canvas.height * 0.03}px Arial`
-        this.state.ctx.fillText(this.state.scoreText, textX, textY)
+        DoggoNogoShared.drawScoreFeedback(this)
     },
     drawPlayer: function () {
         const ctx = this.state.ctx
@@ -505,22 +475,7 @@ const level2 = {
         }
     },
     getTintedPlayerSprite: function (img, color) {
-        if (!img || !img.naturalWidth) return img
-        const key =
-            img.src +
-            "|" +
-            color.replace(/(rgba\([^,]+,[^,]+,[^,]+,)([0-9]*\.?[0-9]+)\)/, (m, pre, a) => pre + parseFloat(a).toFixed(2) + ")")
-        if (this.state.tintedSpriteCache[key]) return this.state.tintedSpriteCache[key]
-        const c = document.createElement("canvas")
-        c.width = img.naturalWidth
-        c.height = img.naturalHeight
-        const g = c.getContext("2d")
-        g.drawImage(img, 0, 0)
-        g.globalCompositeOperation = "source-atop"
-        g.fillStyle = color
-        g.fillRect(0, 0, c.width, c.height)
-        this.state.tintedSpriteCache[key] = c
-        return c
+        return DoggoNogoShared.getTintedSprite(this, img, color)
     },
     drawBreakOverlay: function () {
         this.state.ctx.save()

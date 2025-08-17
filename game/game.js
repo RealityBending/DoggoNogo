@@ -108,7 +108,7 @@
     global.DoggoNogoUI = UI
 })(typeof window !== "undefined" ? window : globalThis)
 
-// Embedded shared helpers (previously in shared_helpers.js)
+// Embedded shared helpers
 ;(function (global) {
     if (typeof global.DoggoNogoTrialTypes === "undefined") {
         global.DoggoNogoTrialTypes = { FAST: "fast", SLOW: "slow", EARLY: "early", TIMEOUT: "timeout", ERROR: "error" }
@@ -121,6 +121,75 @@
                     if (reset) audioEl.currentTime = 0
                     audioEl.play()
                 } catch (e) {}
+            },
+            // Draw the top progress bar (3 segments) based on current score and phase targets.
+            drawProgressBar(level, opts = {}) {
+                if (!level || !level.state) return
+                const ctx = level.state.ctx
+                const canvas = level.state.canvas
+                const widthRatio = opts.widthRatio || 0.5
+                const heightRatio = opts.heightRatio || 0.033
+                const topOffsetRatio = opts.topOffsetRatio || 0.033
+                const colors = opts.colors || ["#4CAF50", "#00BCD4", "#2196F3"]
+                const barWidth = canvas.width * widthRatio
+                const barHeight = canvas.height * heightRatio
+                const x = canvas.width / 2 - barWidth / 2
+                const y = canvas.height * topOffsetRatio
+                ctx.fillStyle = "#555"
+                ctx.fillRect(x, y, barWidth, barHeight)
+                const segWidth = barWidth / 3
+                const phaseTargets = typeof level.getPhaseTargets === "function" ? level.getPhaseTargets() : [1, 1, 1]
+                for (let i = 0; i < 3; i++) {
+                    const startScore = i === 0 ? 0 : phaseTargets.slice(0, i).reduce((a, b) => a + b, 0)
+                    const endScore = startScore + (phaseTargets[i] || 0)
+                    if (endScore <= startScore) continue
+                    const raw = (level.state.score - startScore) / (endScore - startScore)
+                    const frac = Math.min(1, Math.max(0, raw))
+                    if (frac <= 0) continue
+                    ctx.fillStyle = colors[i % colors.length]
+                    ctx.fillRect(x + i * segWidth, y, segWidth * frac, barHeight)
+                }
+                ctx.strokeStyle = "#000"
+                ctx.strokeRect(x, y, barWidth, barHeight)
+            },
+            // Compute dynamic style (color, fontSize) for score delta text.
+            computeScoreFeedbackStyle(points, minScore, maxScore, baseFontPx) {
+                let color = "white"
+                let fontSize = baseFontPx
+                if (points < 0) {
+                    color = "#ff3b30"
+                } else if (points > minScore) {
+                    const span = Math.max(1, maxScore - minScore)
+                    const f = Math.min(1, Math.max(0, (points - minScore) / span))
+                    const r = Math.round(255 * (1 - f))
+                    const g = 255
+                    const b = Math.round(255 * (1 - f))
+                    color = `rgb(${r},${g},${b})`
+                    fontSize = baseFontPx * (1 + 0.5 * f)
+                }
+                return { color, fontSize }
+            },
+            // Draw score feedback (delta) to the right of the progress bar.
+            drawScoreFeedback(level, opts = {}) {
+                if (!level || !level.state || !level.state.scoreTextVisible) return
+                const canvas = level.state.canvas
+                const ctx = level.state.ctx
+                const barWidth = canvas.width * (opts.widthRatio || 0.5)
+                const barHeight = canvas.height * (opts.heightRatio || 0.033)
+                const barX = canvas.width / 2 - barWidth / 2
+                const barY = canvas.height * (opts.topOffsetRatio || 0.033)
+                const padding = opts.padding || 30
+                const textX = barX + barWidth + padding
+                const baseFontPx = canvas.height * (opts.baseFontRatio || 0.03)
+                const points = level.state.scoreTextPoints || 0
+                const minScore = level.params ? level.params.minScore : 0
+                const maxScore = level.params ? level.params.maxScore : minScore + 1
+                const { color, fontSize } = this.computeScoreFeedbackStyle(points, minScore, maxScore, baseFontPx)
+                ctx.fillStyle = color
+                ctx.font = `${fontSize}px Arial`
+                ctx.textAlign = "left"
+                const textY = barY + barHeight * 0.75
+                ctx.fillText(level.state.scoreText, textX, textY)
             },
             clearTrialTimers(state) {
                 if (!state) return
@@ -145,9 +214,33 @@
                 stim.exitInitialWidth = stim.width
                 stim.exitInitialHeight = stim.height
             },
+            // Cache & tint a sprite. Cache stored on level.state.tintedSpriteCache
+            getTintedSprite(level, img, color) {
+                if (!img || !img.naturalWidth) return img
+                if (!level.state.tintedSpriteCache) level.state.tintedSpriteCache = {}
+                const key =
+                    img.src +
+                    "|" +
+                    color.replace(/(rgba\([^,]+,[^,]+,[^,]+,)([0-9]*\.?[0-9]+)\)/, (m, pre, a) => pre + parseFloat(a).toFixed(2) + ")")
+                if (level.state.tintedSpriteCache[key]) return level.state.tintedSpriteCache[key]
+                const c = document.createElement("canvas")
+                c.width = img.naturalWidth
+                c.height = img.naturalHeight
+                const g = c.getContext("2d")
+                g.drawImage(img, 0, 0)
+                g.globalCompositeOperation = "source-atop"
+                g.fillStyle = color
+                g.fillRect(0, 0, c.width, c.height)
+                level.state.tintedSpriteCache[key] = c
+                return c
+            },
             showScoreDelta(levelObj, points) {
                 if (!levelObj || typeof levelObj.showScoreFeedback !== "function") return
                 const sign = points > 0 ? "+" : ""
+                // Store raw points if level maintains scoreTextPoints (for dynamic styling)
+                if (levelObj.state) {
+                    levelObj.state.scoreTextPoints = points
+                }
                 levelObj.showScoreFeedback(`${sign}${Math.round(points)}`)
             },
             getTrialTypeLabel(type) {
