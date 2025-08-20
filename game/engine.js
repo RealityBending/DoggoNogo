@@ -360,10 +360,14 @@
         },
         _resizeCanvasToViewport: function () {
             if (!this.canvas) return
+            const dpr = window.devicePixelRatio || 1
             const w = document.documentElement.clientWidth || window.innerWidth
             const h = document.documentElement.clientHeight || window.innerHeight
-            this.canvas.width = w
-            this.canvas.height = h
+            this.canvas.width = w * dpr
+            this.canvas.height = h * dpr
+            this.canvas.style.width = `${w}px`
+            this.canvas.style.height = `${h}px`
+            this.ctx.scale(dpr, dpr)
         },
     }
 
