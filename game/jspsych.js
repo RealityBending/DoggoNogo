@@ -105,7 +105,7 @@
             markerFlashDuration = 100,
             markerSize = 60,
             fullscreen = false,
-            initialFillColor = "#000", // color to immediately paint when suppressLoading to avoid white flash
+            initialFillColor = "#000", // color painted immediately to avoid a white flash while assets load
         } = {}) {
             return {
                 type: jsPsychCallFunction,
@@ -153,7 +153,9 @@
                             ctxPre.restore()
                             // Also set CSS background for consistency during resize before first draw.
                             canvas.style.background = initialFillColor
-                        } catch (e) {}
+                        } catch (e) {
+                            console.debug("Initial canvas fill failed", e)
+                        }
                     }
 
                     const level = levelGetter()

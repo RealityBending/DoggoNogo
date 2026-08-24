@@ -1,5 +1,8 @@
 /* Simple shared UI helpers for Doggo/Nogo */
 ;(function (global) {
+    // Single namespace for module-level singleton flags (preload state, shared audio) to avoid
+    // scattering globals and to keep multi-instance assumptions in one place.
+    global.__DoggoNogo = global.__DoggoNogo || {}
     const REF_W = 1792
     const REF_H = 1024
     function scaleFontPx(base, canvas) {
@@ -17,11 +20,6 @@
     }
 
     const UI = {
-        showLoading(canvas, text = "Loading...") {
-            const ctx = canvas.getContext("2d")
-            drawCenteredText(ctx, canvas, [text], 30, "black")
-        },
-
         /**
          * Converts a Z-score to a quantile assuming a standard normal distribution.
          * Since lower IES is better, the quantile reflects the percentage of the population
@@ -108,16 +106,6 @@
     global.DoggoNogoUI = UI
 })(typeof window !== "undefined" ? window : globalThis)
 
-// Optional automatic preload for standalone (non-jsPsych) if desired.
-;(function (global) {
-    if (typeof document !== "undefined" && global.DoggoNogoCore && global.DoggoNogoAssets) {
-        // Provide a manual hook only; avoid auto to not delay first paint unnecessarily.
-        global.DoggoNogoPreloadAll = function (basePath) {
-            return global.DoggoNogoCore.preloadAll({ basePath: basePath || "assets/" })
-        }
-    }
-})(typeof window !== "undefined" ? window : globalThis)
-
 // Embedded shared helpers
 ;(function (global) {
     if (typeof global.DoggoNogoTrialTypes === "undefined") {
@@ -167,7 +155,9 @@
                 try {
                     if (reset) audioEl.currentTime = 0
                     audioEl.play()
-                } catch (e) {}
+                } catch (e) {
+                    console.debug("safePlay failed", e)
+                }
             },
             // General asset preloader for standalone mode.
             // Accepts a basePath and optional manifest object ({ images:[], audio:[] }).
@@ -186,7 +176,7 @@
                             } catch (e) {
                                 res()
                             }
-                        })
+                        }),
                 )
                 const audioPromises = (m.audio || []).map(
                     (rel) =>
@@ -197,11 +187,11 @@
                                 a.onerror = () => res()
                                 a.src = basePath + rel
                                 // Optionally store specific shared audios globally for reuse
-                                if (rel.endsWith("sound_phasecomplete.mp3")) global.__DoggoPhaseCompleteAudio = a
+                                if (rel.endsWith("sound_phasecomplete.mp3")) global.__DoggoNogo.phaseCompleteAudio = a
                             } catch (e) {
                                 res()
                             }
-                        })
+                        }),
                 )
                 return Promise.all([...imagePromises, ...audioPromises])
             },
@@ -374,16 +364,18 @@
             },
             ensureSharedPhaseCompleteSound(levelObj, basePath) {
                 if (!levelObj) return null
-                if (!global.__DoggoPhaseCompleteAudio && typeof Audio !== "undefined") {
+                if (!global.__DoggoNogo.phaseCompleteAudio && typeof Audio !== "undefined") {
                     try {
                         const a = new Audio()
                         // basePath expected to end with '/'
                         const base = basePath || ""
                         a.src = base + "sound_phasecomplete.mp3"
-                        global.__DoggoPhaseCompleteAudio = a
-                    } catch (e) {}
+                        global.__DoggoNogo.phaseCompleteAudio = a
+                    } catch (e) {
+                        console.debug("Failed to create phase-complete audio", e)
+                    }
                 }
-                return global.__DoggoPhaseCompleteAudio || null
+                return global.__DoggoNogo.phaseCompleteAudio || null
             },
             playPhaseComplete(levelObj) {
                 const shared = this.ensureSharedPhaseCompleteSound(
@@ -392,7 +384,7 @@
                         ? levelObj.params.assetBasePath.endsWith("/")
                             ? levelObj.params.assetBasePath
                             : levelObj.params.assetBasePath + "/"
-                        : (levelObj && levelObj.assets && levelObj.assets.basePath) || "assets/"
+                        : (levelObj && levelObj.assets && levelObj.assets.basePath) || "assets/",
                 )
                 if (shared) this.safePlay(shared, true)
             },
@@ -485,6 +477,35 @@
                 const s = [...arr].sort((a, b) => a - b)
                 const m = Math.floor(s.length / 2)
                 return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2
+            },
+            /**
+             * Compute the end-of-level performance summary from a trial data log.
+             * Performance score is the Inverse Efficiency Score (IES = meanCorrectRT / (1 - errorRate)),
+             * Z-scored against population parameters and converted to a percentile.
+             * @param {Array<object>} data - level.state.data records (with RT and Error fields).
+             * @param {{populationMean?: number, populationSD?: number}} [params]
+             * @returns {{meanRT:number, errorRate:number, ies:number, zIES:number, quantile:number}}
+             */
+            computeIES(data = [], params = {}) {
+                const populationMean = params.populationMean || 300
+                const populationSD = params.populationSD || 20
+                const correctTrials = data.filter((d) => d.Error === 0 && d.RT !== "NA" && typeof d.RT === "number")
+
+                if (!correctTrials.length || data.length === 0) {
+                    return { meanRT: null, errorRate: 1, ies: Infinity, zIES: Infinity, quantile: 0 }
+                }
+
+                const meanRT = correctTrials.reduce((a, d) => a + d.RT, 0) / correctTrials.length
+                const errorRate = data.filter((d) => d.Error === 1).length / data.length
+
+                if (errorRate >= 1) {
+                    return { meanRT, errorRate, ies: Infinity, zIES: Infinity, quantile: 0 }
+                }
+
+                const ies = meanRT / (1 - errorRate)
+                const zIES = (ies - populationMean) / populationSD
+                const quantile = DoggoNogoUI?.zScoreToQuantile ? DoggoNogoUI.zScoreToQuantile(zIES) : 0
+                return { meanRT, errorRate, ies, zIES, quantile }
             },
         }
     }

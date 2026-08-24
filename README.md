@@ -12,6 +12,12 @@ Studies:
 
 - [**Validation 1**](https://github.com/RealityBending/DoggoNogoValidation)
 
+Current Content
+
+- [x] Level 1: Simple Reaction Time
+- [x] Level 2: Simon Task
+
+
 ## Details
 
 ### Overview
@@ -26,8 +32,9 @@ The app is a pure client-side HTML5 application with no build step or server dep
 
 | File | Role |
 |---|---|
-| `game/game.js` | Shared UI helpers: score-screen animation, `zScoreToQuantile`, loading screen, asset preloader (`DoggoNogoCore`), trial-type constants |
-| `game/engine.js` | Central `DoggoNogoEngine` — orchestrates asset loading, cover screen, intro sequence, instruction screen, `requestAnimationFrame` game loop, marker (photodiode) support, and the end-of-level IES calculation |
+| `game/game.js` | Shared UI helpers: score-screen animation, `zScoreToQuantile`, loading screen, asset preloader (`DoggoNogoCore`), trial-type constants, end-of-level `computeIES` |
+| `game/core.js` | `DoggoNogoBaseLevel`: shared level mechanics (player physics, rendering scaffolding, phase progression, scoring helpers, input plumbing) that each level inherits via its prototype |
+| `game/engine.js` | Central `DoggoNogoEngine` — orchestrates asset loading, cover screen, intro sequence, instruction screen, `requestAnimationFrame` game loop, marker (photodiode) support, and the end-of-level score screen |
 | `game/intro.js` | `IntroRunner` — a generic step-sequenced cutscene player (fill / text / image / sound / wait steps) plus inline intro-asset loader |
 | `game/levels/level1.js` | All logic for Level 1 (Simple RT) as a single self-contained `level1` object |
 | `game/levels/level2.js` | All logic for Level 2 (Simon task) as a single self-contained `level2` object |
@@ -36,7 +43,7 @@ The app is a pure client-side HTML5 application with no build step or server dep
 | `game/index.html` | Standalone entry point |
 | `example_jspsych.html` | Minimal jsPsych integration example |
 
-Levels expose a uniform interface (`load`, `showInstructionScreen`, `start`, `update`, `draw`, `handleResize`) consumed by the engine. Asset paths are relative and accept a configurable `assetBasePath` so the game can be served from any directory. An optional **marker** square (for physiological synchronisation via a photosensor) can be enabled via `markerEnabled: true` and flashes on stimulus onset or keypress.
+Levels expose a uniform interface (`load`, `showInstructionScreen`, `start`, `update`, `draw`, `handleResize`) consumed by the engine, and share their common mechanics through a `DoggoNogoBaseLevel` prototype (`game/core.js`). Asset paths are relative and accept a configurable `assetBasePath` so the game can be served from any directory. An optional **marker** square (for physiological synchronisation via a photosensor) can be enabled via `markerEnabled: true` and flashes on stimulus onset or keypress.
 
 
 
@@ -44,7 +51,7 @@ Levels expose a uniform interface (`load`, `showInstructionScreen`, `start`, `up
 
 **Scientific summary**
 
-Level 1 implements a **Simple Reaction Time (SRT) task**, one of the most fundamental measures in cognitive neuroscience. A single stimulus appears at a pseudo-random screen position after a variable inter-stimulus interval (ISI: 1 000–3 000 ms); the participant must press a single key (`ArrowDown`) as quickly as possible. Because there is only one possible stimulus and one possible response, the task requires no discrimination or selection: it measures the lower bound of sensorimotor processing speed free from decision conflict.
+Level 1 implements a **Simple Reaction Time (SRT) task**, one of the most fundamental measures in cognitive neuroscience. A single stimulus appears at a pseudo-random screen position after a variable inter-stimulus interval (ISI: 1-3 s); the participant must press a single key (`ArrowDown`) as quickly as possible. Because there is only one possible stimulus and one possible response, the task requires no discrimination or selection: it measures the lower bound of sensorimotor processing speed free from decision conflict.
 
 Responses are classified as:
 - **Fast** (RT ≤ adaptive threshold): rewarded with scaled points (100–200).
@@ -54,7 +61,7 @@ Responses are classified as:
 
 The adaptive **median RT threshold** (initialised at 1 000 ms, updated after every valid trial using a running median) serves a dual purpose: it provides an individually-tailored difficulty parameter so the task remains challenging regardless of baseline speed, and it functions as the decision criterion separating fast from slow trials. The parameter `gameDifficulty` (default 1) divides the median to shift this threshold (> 1 makes it easier; < 1 makes it harder).
 
-The end-of-level performance score is **IES** (Mean correct RT / (1 − Error Rate)), Z-scored against stored population parameters (`populationMean`, `populationSD`) and converted to a percentile, which is shown to the participant as a score-screen animation. Individual trial data including RT, trial type, and cumulative score are exported for downstream statistical analysis.
+The end-of-level performance score is IES (Mean correct RT / (1 − Error Rate)), where errors are defined as commission failures (early presses before stimulus onset) and omission timeouts (no response within 2 * median RT). The resulting score is Z-scored against population parameters (populationMean, populationSD) and converted into a percentile reflecting the percentage of players beaten, which is displayed in the end-of-level animation. 
 
 **Technical summary**
 
@@ -83,7 +90,9 @@ The level progresses across three phases of increasing cognitive demand:
 | **Phase 2** (congruent + neutral) | Adds vertically spawned stimuli (top/bottom) with no lateral position cue | Neutral condition; introduces spatial uncertainty without direct conflict |
 | **Phase 3** (congruent + incongruent) | Adds horizontally spawned stimuli where position opposes required response direction | Maximal Simon interference; requires active response inhibition |
 
-Incongruent trials in Phase 3 are expected to produce longer RTs and higher error rates than congruent trials — the **Simon effect** — quantifying the efficiency of the participant's inhibitory control. Errors (incorrect direction key) are penalised (`−minScore/2`) and logged with `difficulty: "incongruent"/"congruent"/"neutral"` for downstream contrast analysis (e.g., congruency effect = RT_incongruent − RT_congruent). The `neutralProportionPhase2` and `incongruentProportionPhase3` parameters allow researchers to adjust the conflict load without changing game structure.
+Incongruent trials in Phase 3 are expected to produce longer RTs and higher error rates than congruent trials — the **Simon effect** — quantifying the efficiency of the participant's inhibitory control. Errors (incorrect direction key) are penalised (`−minScore/2`) and logged with `difficulty: "incongruent"/"congruent"/"neutral"` for downstream contrast analysis. The `neutralProportionPhase2` and `incongruentProportionPhase3` parameters allow researchers to adjust the conflict load without changing game structure.
+
+ike Level 1, Level 2 computes the end-of-level IES and percentile using DoggoNogoCore.computeIES. In Level 2, the error rate reflects directional choice errors (pressing the wrong arrow key), early presses, and omission timeouts.
 
 **Technical summary**
 
@@ -97,3 +106,58 @@ Level 2 shares the same object interface and engine as Level 1 but adds the foll
 - **Error handling**: An incorrect key direction triggers an error flash (red sprite tint), plays `sound_error.mp3`, and deducts points — providing salient negative feedback without ending the trial prematurely.
 - **Phase instructions**: Each inter-phase break overlay shows phase-specific instructional text (e.g., introducing vertical spawns in Phase 2) so participants understand the evolving task rules.
 - **Data log fields** (per trial): `RT`, `TrialType`, `Error`, `Points`, `Score`, `Phase`, `StimulusRegion` (`"left"/"right"/"top"/"bottom"`), `StimulusDifficulty` (`"congruent"/"neutral"/"incongruent"`), `ResponseKey`, `Threshold`.
+
+
+## Potential TODOS
+
+1. Consider driving the marker keypress mode and per-phase break sparkle/sound from data so
+   `updateBreak` can be unified into the base too.
+2. Cache `getPhaseTargets()` per phase change instead of recomputing every frame in the progress bar.
+3. Confirm whether `markerTriggerMode: "keypress"` is still needed; remove if obsolete.
+4. Transition from IIFEs to Native ES ModulesWhy it matters:All game logic currently executes inside anonymous wrapper functions attaching to globalThis ((function (global) { ... })(...)). Switching to ES Modules eliminates namespace pollution, makes dependency flow explicit.  
+Action Plan & Edits:
+
+HTML Entry Points (game/index.html, example_jspsych.html):
+
+Change script loading tags to <script type="module" src="...">.  
+
+game/game.js, game/core.js, game/engine.js:
+
+Replace IIFE closures with standard ES exports:
+
+export const DoggoNogoUI = { ... }
+export const DoggoNogoCore = { ... }
+export class DoggoNogoEngine { ... }
+
+game/levels/level1.js & game/levels/level2.js:
+
+Import dependencies explicitly: import { DoggoNogoBaseLevel } from '../core.js';
+Export level definitions: export const level1 = { ... };
+
+
+5. Convert Prototype Inheritance to ES6 Classes
+
+Why it matters:Setting prototypes via Object.setPrototypeOf(level1, DoggoNogoBaseLevel) impairs engine optimization, obscures inheritance hierarchies, and makes instantiating clean, isolated level instances difficult.  
+
+Action Plan & Edits:game/core.js:
+
+Convert DoggoNogoBaseLevel into an abstract base class BaseLevel containing shared physics, canvas rendering scaffolding, and timer logic.  
+
+game/levels/level1.js & game/levels/level2.js:
+
+Convert level1 and level2 into classes extending BaseLevel:
+
+``` 
+export class Level1 extends BaseLevel {
+    constructor(params = {}) {
+        super();
+        this.params = { ...defaultParams, ...params };
+        this.state = this.getInitialState();
+    }
+    // Level-specific methods (showInstructionScreen, updateStimulusMotion, etc.)
+}
+```
+
+6. Potential timing precision improvements: See https://github.com/SussexPsychologySoftware/jsPsych-RDK/blob/main/abstracted.html. engine.js is using requestAnimationFrame instead of possibly setTimeout (like jsPsych), but it missed the one-frame-off timestamp issue. Would the code in runRAFLoop could improve your stim presentation durations and RT accuracy
+
+7. Performance: Consider relying more on css animations for sprites drawn on separate canvases (or image elements even) to help. We might be considering the animations as more complicated than they are. Perhaps we're re-calculating and drawing stim for transitions that would be better handled by css animations.

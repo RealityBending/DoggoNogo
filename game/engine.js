@@ -4,6 +4,8 @@
  */
 
 ;(function (global) {
+    // Shared namespace for module-level singleton flags (preload state, shared audio).
+    global.__DoggoNogo = global.__DoggoNogo || {}
     const GameEngine = {
         /**
          * Runs a game level.
@@ -50,23 +52,21 @@
             }
 
             // Always show unified loading screen only if this level not yet loaded AND global preload will run now.
-            if (!this.level._loaded && !global.__DoggoGlobalPreloaded) {
+            if (!this.level._loaded && !global.__DoggoNogo.globalPreloaded) {
                 if (typeof DoggoNogoCore !== "undefined" && DoggoNogoCore.renderLoadingScreen) {
                     DoggoNogoCore.renderLoadingScreen(this.canvas, "Loading the game...")
-                } else if (typeof DoggoNogoUI !== "undefined" && DoggoNogoUI.showLoading) {
-                    DoggoNogoUI.showLoading(this.canvas, "Loading the game...")
                 }
             }
 
             try {
                 // 0. One-time global asset preload (merged manifest) so host (jsPsych/standalone) need not orchestrate.
-                if (!global.__DoggoGlobalPreloaded && typeof DoggoNogoCore !== "undefined" && DoggoNogoCore.preloadAll) {
+                if (!global.__DoggoNogo.globalPreloaded && typeof DoggoNogoCore !== "undefined" && DoggoNogoCore.preloadAll) {
                     try {
                         await DoggoNogoCore.preloadAll({ basePath: options.assetBasePath })
                     } catch (e) {
                         console.warn("Global preloadAll failed (continuing):", e)
                     }
-                    global.__DoggoGlobalPreloaded = true
+                    global.__DoggoNogo.globalPreloaded = true
                 }
 
                 // 1. Level-specific assets (skip if already loaded externally)
@@ -76,7 +76,7 @@
                 }
 
                 // 1b. Background preload of other defined levels (one-time) so later starts are instantaneous.
-                if (preloadOtherLevels && !global.__DoggoOtherLevelsPreloaded) {
+                if (preloadOtherLevels && !global.__DoggoNogo.otherLevelsPreloaded) {
                     try {
                         const candidates = []
                         if (global.level1 && global.level1 !== this.level && !global.level1._loaded) candidates.push(global.level1)
@@ -88,14 +88,14 @@
                                     lvl
                                         .load(this.canvas, { assetBasePath: options.assetBasePath })
                                         .then(() => (lvl._loaded = true))
-                                        .catch((e) => console.warn("Background level preload failed", e))
-                                )
+                                        .catch((e) => console.warn("Background level preload failed", e)),
+                                ),
                             )
                         }
                     } catch (e) {
                         console.warn("Background preload exception", e)
                     }
-                    global.__DoggoOtherLevelsPreloaded = true
+                    global.__DoggoNogo.otherLevelsPreloaded = true
                 }
 
                 // Optionally expand canvas to current viewport size (one-time here; resize listener can adjust later)
@@ -136,7 +136,7 @@
                     const mergedAssets = Object.assign(
                         {},
                         this.level.assets,
-                        typeof DoggoNogoIntroAssets !== "undefined" ? DoggoNogoIntroAssets : {}
+                        typeof DoggoNogoIntroAssets !== "undefined" ? DoggoNogoIntroAssets : {},
                     )
                     await IntroRunner.run(this.canvas, introSequence, mergedAssets, { assetBasePath: options.assetBasePath || "" })
                 }
@@ -180,7 +180,9 @@
                             if (typeof this.level.isResponseKey === "function") {
                                 try {
                                     isResp = this.level.isResponseKey(e.key)
-                                } catch (_) {}
+                                } catch (err) {
+                                    console.debug("isResponseKey threw", err)
+                                }
                             } else {
                                 isResp = ["ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)
                             }
@@ -196,23 +198,11 @@
                     // This is the endGameCallback from the level
                     this.stop()
                     if (typeof DoggoNogoUI !== "undefined" && DoggoNogoUI.showScoreScreen) {
-                        // Population parameters for IES Z-scoring from level parameters
-                        const populationMean = this.level.params.populationMean || 300
-                        const populationSD = this.level.params.populationSD || 20
-
-                        //  Compute Inverse Efficiency Score (IES)
-                        const correctTrials = state.data.filter((d) => d.Error === 0 && d.RT !== "NA")
-                        const meanRT = correctTrials.length
-                            ? correctTrials.map((d) => d.RT).reduce((a, b) => a + b, 0) / correctTrials.length
-                            : 0
-                        const errorRate = state.data.length > 0 ? state.data.filter((d) => d.Error === 1).length / state.data.length : 0
-                        const ies = errorRate < 1 ? meanRT / (1 - errorRate) : meanRT // Avoid division by zero
-
-                        // Z-transform the IES
-                        const zIES = (ies - populationMean) / populationSD
-
-                        // Convert Z-score to quantile
-                        const quantile = DoggoNogoUI.zScoreToQuantile(zIES)
+                        // Compute the end-of-level performance summary (IES -> Z -> percentile).
+                        const { meanRT, errorRate, ies, zIES, quantile } = DoggoNogoCore.computeIES(state.data, {
+                            populationMean: this.level.params.populationMean,
+                            populationSD: this.level.params.populationSD,
+                        })
 
                         // Persist metrics & parameter snapshot onto level state for downstream data collection
                         try {
@@ -272,17 +262,18 @@
          */
         waitForStart: function () {
             return new Promise((resolve) => {
-                const levelName = (this.level && this.level.name) || ""
-                const isLevel2 = /level ?2/i.test(levelName) || (this.level && this.level === window.level2)
+                const startKeys = (this.level && this.level.startKeys) || ["ArrowDown"]
                 const startHandler = (e) => {
-                    if ((!isLevel2 && e.key === "ArrowDown") || (isLevel2 && (e.key === "ArrowLeft" || e.key === "ArrowRight"))) {
+                    if (startKeys.indexOf(e.key) !== -1) {
                         document.removeEventListener("keydown", startHandler)
                         // Play start sound if available on the level assets
                         if (this.level && this.level.assets && this.level.assets.soundStart) {
                             try {
                                 this.level.assets.soundStart.currentTime = 0
                                 this.level.assets.soundStart.play()
-                            } catch (e2) {}
+                            } catch (e2) {
+                                console.debug("Start sound failed to play", e2)
+                            }
                         }
                         resolve()
                     }
@@ -323,7 +314,9 @@
             if (this._injectedFullscreenStyleEl) {
                 try {
                     this._injectedFullscreenStyleEl.remove()
-                } catch (_) {}
+                } catch (err) {
+                    console.debug("Failed to remove fullscreen style element", err)
+                }
                 this._injectedFullscreenStyleEl = null
                 // Restore overflow auto in case we hid scrollbars
                 document.documentElement.style.overflow = this._prevHtmlOverflow || ""

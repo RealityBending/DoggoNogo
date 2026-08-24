@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
     <head>
         <meta charset="UTF-8" />
@@ -39,6 +39,8 @@
 
         <!-- Shared UI helpers -->
         <script src="game.js"></script>
+        <!-- Shared base level logic -->
+        <script src="core.js"></script>
         <!-- Central game engine -->
         <script src="engine.js"></script>
         <!-- Intro runner -->
@@ -110,7 +112,6 @@
                     assetBasePath: "assets/",
                     introSequence: typeof level1IntroSequence !== "undefined" ? level1IntroSequence : null,
                     continueHint: "Press SPACE to continue",
-                    suppressLoading: true, // already preloaded
                     onFinish: () => {
                         const proceed = (e) => {
                             if (e.code === "Space") {
@@ -133,7 +134,6 @@
                     skipCover: true, // start directly at level 2 instruction screen
                     introSequence: typeof level2IntroSequence !== "undefined" ? level2IntroSequence : null,
                     continueHint: "Press SPACE to finish",
-                    suppressLoading: true, // preloaded
                     onFinish: (state) => {
                         console.log("All levels finished. Final state level2:", state)
                     },

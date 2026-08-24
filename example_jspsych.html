@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
     <head>
         <!-- Title shown in tab -->
@@ -14,6 +14,7 @@
         <script src="https://unpkg.com/@jspsych/plugin-fullscreen"></script>
         <!-- Game scripts -->
         <script src="game/game.js"></script>
+        <script src="game/core.js"></script>
         <script src="game/engine.js"></script>
         <script src="game/intro.js"></script>
         <script src="game/levels/level1.js"></script>
@@ -55,7 +56,7 @@
                 trialsNumber: 18,
                 markerEnabled: true,
                 fullscreen: true,
-            })
+            }),
         )
 
         timeline.push({

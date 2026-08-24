@@ -1,114 +1,52 @@
 /**
- * @file Contains all the logic for level 1 of the game.
+ * @file Level 1 — Gamified Simple Reaction Time (SRT) task.
  *
- * Level 1 = Gamified Simple Reaction Time Task
- *
- * High-level overview
- * -------------------
- * This script encapsulates the entire logic for a single level in a large `level1` object.
- * This object is structured into three main parts:
- *  - `params`: Static configuration like timings, scores, and sizes.
- *  - `assets`: Holds all `Image` and `Audio` objects.
- *  - `state`: Dynamic data that changes during gameplay (e.g., score, player position, timers).
+ * Shared gameplay mechanics (physics, rendering scaffolding, phase progression, scoring helpers)
+ * live in `DoggoNogoBaseLevel` (game/core.js). This file defines only what is specific to Level 1:
+ * its `params`/`assets`/`state`, asset loading, instructions, the falling-stimulus animation, the
+ * adaptive phase-target strategy, and the single-key (ArrowDown) response handling/scoring.
  *
  * Trial lifecycle:
- * 1) After an ISI (random delay), a stimulus appears at a random position and we start timing.
- * 2) Player presses ArrowDown.
- *    - If pressed before the stimulus appears: early → penalty (−minScore).
- *    - If pressed while visible and RT > Threshold (median RT): slow → +0.
- *    - If pressed while visible and RT ≤ Threshold: fast → positive points.
- * 3) Valid RTs (fast or slow within maxRT) update Threshold (running median) and are sent to the score screen.
- * 4) If no press occurs before maxRT (2 × Threshold at onset), the trial times out with 0 points.
- * 5) Level ends when the current phase's target is reached for the final phase.
+ * 1) After a random ISI a stimulus appears at a random position and timing starts.
+ * 2) Player presses ArrowDown:
+ *    - before the stimulus appears  -> early    -> penalty (-minScore)
+ *    - visible and RT > Threshold    -> slow     -> +0
+ *    - visible and RT <= Threshold   -> fast     -> positive points
+ * 3) Valid RTs update Threshold (running median) and feed the end-of-level score.
+ * 4) No press before maxRT (2 x Threshold) -> timeout (0 points).
+ * 5) Level ends when the final phase's target score is reached.
  *
- * Fast trial scoring:
- * - Clamp RT to [0, maxRT]; normalize to [0, 1]: nRT = RT / maxRT
- * - Reverse so faster is better: nRT = 1 − nRT
- * - Score = minScore + nRT × (maxScore − minScore)
+ * Fast-trial scoring: nRT = 1 - clamp(RT,0,maxRT)/maxRT; Score = minScore + nRT*(maxScore-minScore).
  *
- * Phase Breaks & Evolution Sequence:
- * ----------------------------------
- * When a phase's score target is met, the game enters a timed break sequence:
- * 1. A "tunnel vision" overlay appears, focusing on the player sprite.
- * 2. After 1 second, the sprite "evolves" (changes image), a sound plays, and sparkles appear.
- * 3. After another second, a "Press SPACE to continue" prompt appears.
- * 4. The player can then press SPACE to start the next phase.
+ * Adaptive phase targets: at each phase start, distribute the remaining theoretical valid trials
+ * across remaining phases (assuming ~50% fast worth >= minScore), with a per-phase floor of
+ * max(minScore, (minTrialsPerPhase/2)*minScore). This gently steers the session toward `trialsNumber`.
  *
- * Data Logging:
- * -------------
- * On every keypress, a data record is pushed to `level1.state.data`. This array is also
- * exposed as `window.level1Data` for easy access from the browser console.
- *
- * Adaptive phase targets and perceived agency
- * ------------------------------------------
- * We adapt each phase's target score to gently steer the session toward a target
- * total number of valid trials (trialsNumber) while still letting players feel
- * their performance matters.
- *
- * - At the start of each phase, we compute a phase target based on the number of
- *   remaining trials shown (trials) and distribute them across the
- *   remaining phases. We assume ~50% of those trials will be "fast" and worth at
- *   least minScore points. This produces an estimated target for the phase.
- * - We also enforce a per-phase minimum derived from minTrialsPerPhase to avoid
- *   trivially short phases:
- *     phaseMinTarget = max(minScore, (minTrialsPerPhase / 2) * minScore)
- *   The final phase target is max(estimatedTarget, phaseMinTarget).
- *
- * Player agency vs. consistency:
- * - Faster RTs earn more points within a trial (up to maxScore), which can let a
- *   player complete a phase slightly sooner — reinforcing the perception that
- *   going faster helps. However, because phase targets are recomputed at each
- *   break using the remaining valid trials, the overall structure gently nudges
- *   the session toward a consistent total of trials.
- *
- * Phase targets and minimum trials
- * --------------------------------
- * Each phase enforces a minimum target derived from a configurable
- * minTrialsPerPhase (default 4):
- *   phaseMinTarget = max(minScore, (minTrialsPerPhase / 2) * minScore)
- * Dynamic targets are the max of this minimum and an estimate based on
- * remaining trials (assuming ~50% fast), preventing too-short phases.
- *
- * Performance Score (IES)
- * -------------------------
- * The performance score is based on the Inverse Efficiency Score (IES),
- * calculated as Mean Correct RT / (1 - Error Rate).
+ * Data log: every keypress pushes a record to `level1.state.data` (also `window.level1Data`).
  */
 
-// Use shared trial type enum if available
-// Guarded global enum definition to avoid duplicate const redeclaration across level scripts
+// Use shared trial type enum if available (guarded to avoid duplicate const redeclaration across levels)
 if (typeof TrialTypes === "undefined") {
     var TrialTypes =
         typeof DoggoNogoTrialTypes !== "undefined"
             ? DoggoNogoTrialTypes
             : { FAST: "fast", SLOW: "slow", EARLY: "early", TIMEOUT: "timeout", ERROR: "error" }
 } else if (typeof DoggoNogoTrialTypes !== "undefined") {
-    // Sync with shared if available
     TrialTypes = DoggoNogoTrialTypes
 }
 
 const level1 = {
-    // Use jsPsych's time function for consistency
-    now: function () {
-        // jsPsych is loaded globally in the HTML
-        if (typeof jsPsych !== "undefined") {
-            return jsPsych.getTotalTime()
-        }
-        // Fallback for standalone testing
-        if (typeof performance !== "undefined" && typeof performance.now === "function") {
-            return performance.now()
-        }
-        return Date.now()
-    },
+    // Keys that start the level / count as responses (used by the engine and base input plumbing)
+    startKeys: ["ArrowDown"],
+    endOverlayTitle: "Game Over",
+
     params: {
-        // Parameters
         trialsNumber: 12, // The (theoretical) number of valid trials for the entire level
         minTrialsPerPhase: 4, // Minimum (theoretical) trials the player should effectively complete per phase
         minISI: 1000, // Minimum Inter-Stimulus Interval
         maxISI: 3000, // Maximum Inter-Stimulus Interval
         minScore: 100, // Minimum score awarded for a fast trial
         maxScore: 200, // Maximum score awarded for a fast trial
-        // RT thresholds and bounds
         gameDifficulty: 1, // dimensionless; effective threshold = medianRT / gameDifficulty
 
         // IES population parameters (for Z-scoring)
@@ -123,15 +61,14 @@ const level1 = {
         // Animations and size
         stimulusFallDistance: 0.05, // % of canvas height
         playerHeight: 0.2, // % of canvas height
-        playerY: 0.5, // Initial vertical position as proportion of canvas height (player centered vertically at 0.5)
+        playerY: 0.5, // Vertical center position as proportion of canvas height
         stimulusHeight: 0.1, // % of canvas height
         feedbackBubbleHeight: 0.2, // % of canvas height
-        earlyFlashDuration: 150, // ms duration of red flash for early presses
-        earlyFlashTintColor: "255,0,0", // base RGB for tint (alpha animated)
+        flashDuration: 150, // ms duration of red flash for early presses
+        flashTintColor: "255,0,0", // base RGB for tint (alpha animated)
     },
 
     assets: {
-        // Image and audio assets for the level
         imgPlayer: new Image(), // current sprite used for drawing
         imgPlayer1: new Image(), // phase 1 sprite
         imgPlayer2: new Image(), // phase 2 sprite
@@ -151,46 +88,32 @@ const level1 = {
         soundSlow: new Audio(),
         soundEarly: new Audio(),
         soundStart: new Audio(),
-
-        // (Intro assets moved to intro_assets.js)
         // Cover screen assets (shared)
         imgCover: new Image(),
         imgCoverText: new Image(),
     },
 
     state: {
-        // Game state management
-        gameState: "playing", // states: "playing" | "done"
+        gameState: "playing", // "playing" | "done"
         score: 0,
-        trials: 0, // Trials: number of times the stimulus has been shown (includes slow/fast and timeouts; excludes early presses)
+        trials: 0, // number of presented stimuli (slow/fast/timeout; excludes early presses)
         reactionTimes: [],
         particles: [],
         feedbackBubbles: [],
         lastTrialType: null,
         lastFastFeedback: 0, // 0 = no streak, 1 = fast1, 2 = fast2, 3 = fast3
-        // Visual flash timing for early (error) responses
-        earlyFlashUntil: 0,
+        flashUntil: 0, // timestamp until which the player sprite flashes (early/error feedback)
         tintedSpriteCache: {}, // cache of tinted offscreen canvases keyed by baseSrc|color
 
-        // Per-keypress data log (one entry per ArrowDown key press). Exposed as window.level1Data.
+        // Per-keypress data log. Exposed as window.level1Data.
         data: [],
 
-        // Player properties
-        player: {
-            x: 0,
-            y: 0,
-            width: 100, // These will be overwritten by calculated values
-            height: 100,
-            velocityY: 0,
-            jumping: false,
-            originalY: 0,
-        },
+        player: { x: 0, y: 0, width: 100, height: 100, velocityY: 0, jumping: false, originalY: 0 },
 
-        // Stimulus properties
         stimulus: {
             x: 0,
             y: 0,
-            width: 50, // These will be overwritten by calculated values
+            width: 50,
             height: 50,
             visible: false,
             exiting: false,
@@ -199,13 +122,12 @@ const level1 = {
             exitStartTime: 0,
             exitInitialX: 0,
             exitInitialY: 0,
-            initialY: 0, // Store the initial Y position for the fall animation
+            initialY: 0, // initial Y for the fall animation
             exitInitialWidth: 0,
             exitInitialHeight: 0,
         },
 
-        // Timestamp for reaction time calculation
-        startTime: 0,
+        startTime: 0, // timestamp for reaction time calculation
 
         // Internal timers/handles
         pendingStimulusTimeoutId: null, // ISI -> stimulus visible timer
@@ -218,20 +140,20 @@ const level1 = {
         scoreText: "",
         scoreTextVisible: false,
         scoreTextTimeout: null,
-        scoreTextPoints: 0, // raw delta for last score change (for dynamic color/size)
+        scoreTextPoints: 0,
+
         // Phase progression state (3 phases with 2 breaks)
-        phaseIndex: 0, // 0: phase1 active; 1: phase2 active; 2: phase3 active (final)
-        inBreak: false, // true when waiting for SPACE between phases
+        phaseIndex: 0,
+        inBreak: false,
         breakState: "idle", // "idle" | "started" | "effects" | "ready"
         breakStartTime: 0,
         showBreakText: false,
-        // Per-phase required targets, computed at the start of each phase based on remaining valid trials
         phaseRequiredScores: [0, 0, 0],
-
-        // Reset phase floor
         phaseFloorScore: 0,
-        canvas: null, // Reference to the canvas element
-        ctx: null, // Reference to the canvas context
+
+        canvas: null,
+        ctx: null,
+
         // End overlay/button
         endOverlayVisible: false,
         endButtonRect: { x: 0, y: 0, w: 0, h: 0 },
@@ -240,37 +162,10 @@ const level1 = {
     },
 
     /**
-     * Initializes dimensions based on canvas size.
-     * @param {HTMLCanvasElement} canvas - The game canvas element.
-     */
-    initializeDimensions: function (canvas) {
-        this.state.canvas = canvas
-        this.state.ctx = canvas.getContext("2d")
-
-        // Player dimensions (based on phase 1 sprite, assuming all player sprites have the same aspect ratio)
-        const playerAspectRatio = this.assets.imgPlayer1.naturalWidth / this.assets.imgPlayer1.naturalHeight
-        this.state.player.height = canvas.height * this.params.playerHeight
-        this.state.player.width = this.state.player.height * playerAspectRatio
-
-        // Stimulus dimensions
-        const stimulusAspectRatio = this.assets.imgStimulus.naturalWidth / this.assets.imgStimulus.naturalHeight
-        this.state.stimulus.height = canvas.height * this.params.stimulusHeight
-        this.state.stimulus.width = this.state.stimulus.height * stimulusAspectRatio
-
-        // Stimulus fall distance in pixels
-        this.params.stimulusFallDistancePx = canvas.height * this.params.stimulusFallDistance
-    },
-
-    /**
-     * Loads all assets for the level and returns a promise that resolves when loading is complete.
-     * @param {HTMLCanvasElement} canvas - The game canvas element.
-     * @returns {Promise} - A promise that resolves when all assets are loaded.
+     * Loads all assets and resolves once ready, then computes initial dimensions/positions.
      */
     load: function (canvas, options) {
-        // Optional base path so this level can be loaded from different HTML locations (e.g., jsPsych root vs game/)
         const base = (options && options.assetBasePath) || ""
-        // Set asset sources
-        // Preload all player sprites for phase-based swapping
         this.assets.imgPlayer1.src = base + "level1/player_1.png"
         this.assets.imgPlayer2.src = base + "level1/player_2.png"
         this.assets.imgPlayer3.src = base + "level1/player_3.png"
@@ -288,15 +183,10 @@ const level1 = {
         this.assets.soundEarly.src = base + "level1/sound_early.mp3"
         this.assets.soundEvolve.src = base + "level1/sound_evolve.mp3"
         this.assets.soundStart.src = base + "sound_start.mp3"
-
-        // Generic assets (shared across levels)
         this.assets.soundLevelUp.src = base + "sound_levelup.mp3"
-
-        // Cover assets (root-level)
         this.assets.imgCover.src = base + "cover1_noText.png"
         this.assets.imgCoverText.src = base + "text.png"
 
-        // Create a promise that resolves when all assets are loaded
         const assetRefs = [
             this.assets.imgPlayer1,
             this.assets.imgPlayer2,
@@ -316,86 +206,36 @@ const level1 = {
             this.assets.soundSlow,
             this.assets.soundEarly,
             this.assets.soundStart,
-            // Cover assets
             this.assets.imgCover,
             this.assets.imgCoverText,
         ]
-        const promises = assetRefs.map((asset) => {
-            return new Promise((resolve, reject) => {
-                if (asset instanceof HTMLImageElement) {
-                    asset.onload = resolve
-                    asset.onerror = reject
-                } else if (asset instanceof HTMLAudioElement) {
-                    asset.oncanplaythrough = resolve
-                    asset.onerror = reject
-                }
-            })
-        })
+        const promises = assetRefs.map(
+            (asset) =>
+                new Promise((resolve, reject) => {
+                    if (asset instanceof HTMLImageElement) {
+                        asset.onload = resolve
+                        asset.onerror = reject
+                    } else if (asset instanceof HTMLAudioElement) {
+                        asset.oncanplaythrough = resolve
+                        asset.onerror = reject
+                    }
+                }),
+        )
 
         return Promise.all(promises).then(() => {
-            // Now that images are loaded, we can calculate dimensions while preserving aspect ratio
             this.initializeDimensions(canvas)
-            // Place the player horizontally centered & vertically based on params.playerY (interpreted as center position)
             this.state.player.x = canvas.width / 2 - this.state.player.width / 2
             const centerY = canvas.height * (typeof this.params.playerY === "number" ? this.params.playerY : 0.5)
             this.state.player.y = centerY - this.state.player.height / 2
             this.state.player.originalY = this.state.player.y
         })
     },
-    /**
-     * Recalculate sprite dimensions & positions after an external canvas resize.
-     * (Canvas width/height should already be updated by host code before calling.)
-     */
-    handleResize: function () {
-        if (!this.state.canvas) return
-        const canvas = this.state.canvas
-        // Capture previous relative positions (fractions of canvas) to preserve layout
-        const prevPlayerCenterFrac = (this.state.player.x + this.state.player.width / 2) / canvas.width || 0.5
-        const jumpingOffsetFrac = this.state.player.jumping ? (this.state.player.originalY - this.state.player.y) / canvas.height : 0
-        const stimVisible = this.state.stimulus.visible || this.state.stimulus.exiting
-        let stimCenterFracX = 0
-        let stimCenterFracY = 0
-        if (stimVisible) {
-            stimCenterFracX = (this.state.stimulus.x + this.state.stimulus.width / 2) / canvas.width
-            stimCenterFracY = (this.state.stimulus.y + this.state.stimulus.height / 2) / canvas.height
-        }
-        // Recompute base dimensions
-        this.initializeDimensions(canvas)
-        // Player: restore center horizontally; recompute vertical center from params.playerY
-        this.state.player.x = canvas.width * prevPlayerCenterFrac - this.state.player.width / 2
-        const centerY = canvas.height * (typeof this.params.playerY === "number" ? this.params.playerY : 0.5)
-        this.state.player.y = centerY - this.state.player.height / 2
-        this.state.player.originalY = this.state.player.y
-        if (jumpingOffsetFrac) {
-            this.state.player.y = this.state.player.originalY - jumpingOffsetFrac * canvas.height
-        }
-        // Stimulus: preserve center fractions if currently on screen / animating
-        if (stimVisible) {
-            const stimulusAspectRatio = this.assets.imgStimulus.naturalWidth / this.assets.imgStimulus.naturalHeight
-            this.state.stimulus.height = canvas.height * this.params.stimulusHeight
-            this.state.stimulus.width = this.state.stimulus.height * stimulusAspectRatio
-            this.state.stimulus.x = canvas.width * stimCenterFracX - this.state.stimulus.width / 2
-            this.state.stimulus.y = canvas.height * stimCenterFracY - this.state.stimulus.height / 2
-            if (!this.state.stimulus.exiting) {
-                // Maintain initialY baseline for fall animation if not exiting
-                this.state.stimulus.initialY = this.state.stimulus.y
-            }
-        }
-        // Update dependent pixel distances
-        this.params.stimulusFallDistancePx = canvas.height * this.params.stimulusFallDistance
-    },
 
     /**
      * Level-specific instructions screen.
      */
     showInstructionScreen: function (canvas) {
-        const REF_W = 1792
-        const REF_H = 1024
-        const scaleFontPx = (base) => {
-            const factor = (canvas.width / REF_W + canvas.height / REF_H) / 2
-            return Math.round(base * factor)
-        }
-
+        const scaleFontPx = (b) => Math.round(b * ((canvas.width / this.REF_W + canvas.height / this.REF_H) / 2))
         const ctx = canvas.getContext("2d")
         const bg = this.assets.imgBackground
         if (bg && bg.complete) {
@@ -427,7 +267,7 @@ const level1 = {
         const stimulusImg = this.assets.imgStimulus
         if (stimulusImg && stimulusImg.complete) {
             const availableTop = instructionStartY + instructions.length * lineHeight + scaleFontPx(20)
-            const availableBottom = canvas.height * 0.85 - scaleFontPx(40) // leave space for prompt
+            const availableBottom = canvas.height * 0.85 - scaleFontPx(40)
             const centerY = (availableTop + availableBottom) / 2
             const maxHeight = (availableBottom - availableTop) * 0.8
             const aspect = stimulusImg.naturalWidth / stimulusImg.naturalHeight
@@ -436,7 +276,6 @@ const level1 = {
             ctx.drawImage(stimulusImg, canvas.width / 2 - displayWidth / 2, centerY - displayHeight / 2, displayWidth, displayHeight)
         }
 
-        // Add "Press DOWN arrow to start" after a delay
         setTimeout(() => {
             ctx.font = `bold ${scaleFontPx(32)}px Arial`
             ctx.fillStyle = "yellow"
@@ -446,8 +285,6 @@ const level1 = {
 
     /**
      * Starts the level, initializes game state, and sets up event listeners.
-     * @param {HTMLCanvasElement} canvas - The game canvas element.
-     * @param {function} endGameCallback - A callback function to be called when the level is over.
      */
     start: function (canvas, endGameCallback, options) {
         this.state.canvas = canvas
@@ -457,270 +294,78 @@ const level1 = {
         this.state.score = 0
         this.state.reactionTimes = []
         this.state.trials = 0
-        // Reset data in-place to preserve any external references
-        if (Array.isArray(this.state.data)) {
-            this.state.data.length = 0
-        } else {
-            this.state.data = []
-        }
+        if (Array.isArray(this.state.data)) this.state.data.length = 0
+        else this.state.data = []
         this.state.gameState = "playing"
         this.state.phaseIndex = 0
         this.state.inBreak = false
         this.state.phaseRequiredScores = [0, 0, 0]
-        // End overlay/button options
         this.state.showContinueButton = !!opts.showContinueButton
         this.state.continueLabel = typeof opts.continueLabel === "string" ? opts.continueLabel : "Continue"
         this.state.endOverlayVisible = false
 
-        // Reset thresholds
-        this.state.medianRT = 1000 // Reset to initial value
+        this.state.medianRT = 1000
         this.state.maxRT = 2 * this.state.medianRT
 
-        // Reset phase floor
         this.state.phaseFloorScore = 0
-        // Compute target for phase 0 at level start
         this.state.phaseRequiredScores[0] = this.computePhaseTarget(0)
 
-        // Clear any leftover timers
         if (typeof DoggoNogoCore !== "undefined") DoggoNogoCore.clearTrialTimers(this.state)
 
-        // Start background music (loop)
         try {
             this.assets.soundBackground.loop = true
             if (this.assets.soundBackground.paused) this.assets.soundBackground.play()
-        } catch (e) {}
+        } catch (e) {
+            console.debug("Background music failed to start", e)
+        }
 
-        // Set up keyboard input handler
         this.boundKeyDownHandler = this.handleKeyDown.bind(this)
         document.addEventListener("keydown", this.boundKeyDownHandler)
-        // Set up click handler for end overlay button (only used when visible)
         this.boundClickHandler = this.handleClick.bind(this)
         canvas.addEventListener("click", this.boundClickHandler)
 
-        // Expose data in the browser console
         if (typeof window !== "undefined") {
             window.level1Data = this.state.data
-            window.getLevel1Data = () => this.state.data
         }
 
-        // Start the first trial
         this.assets.imgPlayer = this.assets.imgPlayer1
-        // Start sound now played centrally by engine.waitForStart()
         this.startNewTrial()
     },
 
     /**
-     * The main update loop for the level, called on each frame.
+     * Hook (called by base update): animate the stimulus falling during the "fast" window.
      */
-    update: function () {
-        // Apply gravity to the player if it's jumping
-        if (this.state.player.jumping) {
-            this.state.player.velocityY += this.params.gravity
-            this.state.player.y += this.state.player.velocityY
-
-            // Check if the player has landed
-            if (this.state.player.y >= this.state.player.originalY) {
-                this.state.player.y = this.state.player.originalY
-                this.state.player.jumping = false
-                this.state.player.velocityY = 0
-            }
-        }
-
-        // Animate stimulus falling during the "fast" window
+    updateStimulusMotion: function () {
         if (this.state.stimulus.visible && !this.state.stimulus.exiting) {
             const elapsedTime = this.now() - this.state.startTime
             const threshold = this.getEffectiveThreshold()
-
             if (elapsedTime < threshold) {
                 const fallProgress = elapsedTime / threshold
                 this.state.stimulus.y = this.state.stimulus.initialY + this.params.stimulusFallDistancePx * fallProgress
             } else {
-                // Clamp to the final position once the threshold is passed
                 this.state.stimulus.y = this.state.stimulus.initialY + this.params.stimulusFallDistancePx
             }
         }
-
-        // Update particles
-        this.updateParticles()
-        this.updateFeedbackBubbles()
-
-        // Advance exit animation timing
-        if (this.state.stimulus.exiting) {
-            const elapsedTime = this.now() - this.state.stimulus.exitStartTime
-            if (elapsedTime >= this.state.stimulus.exitDuration) {
-                this.state.stimulus.exiting = false
-            }
-        }
-
-        // If on a break, handle the sequence
-        if (this.state.inBreak) {
-            this.updateBreak()
-        }
     },
 
     /**
-     * The main draw loop for the level, called on each frame.
-     */
-    draw: function () {
-        // Redraw the canvas on each frame
-        this.clearCanvas()
-        this.drawBackground()
-        DoggoNogoCore.drawProgressBar(this)
-        this.drawPlayer()
-        this.drawStimulus()
-        this.drawScoreFeedback()
-        DoggoNogoCore.drawParticles(this)
-        DoggoNogoCore.drawFeedbackBubbles(this)
-        // If game is done and end overlay is enabled, draw it
-        if (this.state.gameState === "done" && this.state.endOverlayVisible && this.state.showContinueButton) {
-            this.drawEndOverlay()
-        }
-
-        // If on a break, draw the overlay
-        if (this.state.inBreak) {
-            this.drawBreakOverlay()
-        }
-    },
-
-    /**
-     * Draws the background image.
-     */
-    drawBackground: function () {
-        this.state.ctx.drawImage(this.assets.imgBackground, 0, 0, this.state.canvas.width, this.state.canvas.height)
-    },
-
-    /**
-     * Draws the score feedback text when a correct response is made.
-     */
-    drawScoreFeedback: function () {
-        DoggoNogoCore.drawScoreFeedback(this)
-    },
-
-    /**
-     * Draws the player sprite.
-     */
-    drawPlayer: function () {
-        const ctx = this.state.ctx
-        const p = this.state.player
-        const flashing = this.now() < this.state.earlyFlashUntil
-        if (!flashing) {
-            ctx.drawImage(this.assets.imgPlayer, p.x, p.y, p.width, p.height)
-            return
-        }
-        // Pulsate alpha: sin from 0..pi over duration -> 0..1..0, clamp for visibility
-        const remaining = this.state.earlyFlashUntil - this.now()
-        const total = this.params.earlyFlashDuration || 150
-        const prog = 1 - remaining / total
-        const alpha = Math.sin(Math.PI * prog) // 0..1..0 curve
-        const tint = `rgba(${this.params.earlyFlashTintColor},${alpha})`
-        const tinted = this.getTintedPlayerSprite(this.assets.imgPlayer, tint)
-        ctx.drawImage(tinted, p.x, p.y, p.width, p.height)
-    },
-    /**
-     * Returns a tinted version of the given player sprite, cached by src+color.
-     * Tints preserve alpha: red applied only where sprite has opacity.
-     */
-    getTintedPlayerSprite: function (img, color) {
-        return DoggoNogoCore.getTintedSprite(this, img, color)
-    },
-
-    /**
-     * Draws particles for effects like sparkles.
-     */
-    drawParticles: function () {
-        DoggoNogoCore.drawParticles(this)
-    },
-
-    /**
-     * Draws feedback bubbles that appear after certain trial outcomes.
-     */
-    drawFeedbackBubbles: function () {
-        DoggoNogoCore.drawFeedbackBubbles(this)
-    },
-
-    /**
-     * Draws a break overlay prompting the player to continue.
+     * Draws a break overlay (tunnel vision + single-line prompt) prompting the player to continue.
      */
     drawBreakOverlay: function () {
-        const message = "Press SPACE to continue"
-        this.state.ctx.save()
-
-        // Create a radial gradient for the tunnel effect, centered on the player
-        const playerCenterX = this.state.player.x + this.state.player.width / 2
-        const playerCenterY = this.state.player.y + this.state.player.height / 2
-        const innerRadius = this.state.player.height * 0.75
-        const outerRadius = innerRadius * 2.5
-
-        const gradient = this.state.ctx.createRadialGradient(
-            playerCenterX,
-            playerCenterY,
-            innerRadius,
-            playerCenterX,
-            playerCenterY,
-            outerRadius
-        )
-        gradient.addColorStop(0, "rgba(0,0,0,0)")
-        gradient.addColorStop(1, "rgba(0,0,0,0.85)")
-
-        this.state.ctx.fillStyle = gradient
-        this.state.ctx.fillRect(0, 0, this.state.canvas.width, this.state.canvas.height)
-
-        // Draw the text prompt only when the break sequence is ready
-        if (this.state.showBreakText) {
-            this.state.ctx.fillStyle = "white"
-            this.state.ctx.font = `${this.state.canvas.height * 0.053}px Arial` // Font size relative to canvas height
-            this.state.ctx.textAlign = "center"
-            this.state.ctx.fillText(message, this.state.canvas.width / 2, (2.5 / 3) * this.state.canvas.height)
-        }
-        this.state.ctx.restore()
-    },
-
-    /**
-     * Draws the end-of-level overlay with a Continue button (when enabled).
-     */
-    drawEndOverlay: function () {
         const ctx = this.state.ctx
-        const canvas = this.state.canvas
         ctx.save()
-        // Darken background
-        ctx.fillStyle = "rgba(0,0,0,0.6)"
-        ctx.fillRect(0, 0, canvas.width, canvas.height)
-
-        // Title and stats
-        const centerX = canvas.width / 2
-        const centerY = canvas.height / 2
-        const rts = this.state.reactionTimes || []
-        const avg = rts.length ? rts.reduce((a, b) => a + b, 0) / rts.length : 0
-
-        ctx.fillStyle = "#fff"
-        ctx.textAlign = "center"
-        ctx.font = `${Math.round(canvas.height * 0.06)}px Arial`
-        ctx.fillText("Game Over", centerX, centerY - canvas.height * 0.12)
-        ctx.font = `${Math.round(canvas.height * 0.035)}px Arial`
-        ctx.fillText(`Average RT: ${avg.toFixed(1)} ms`, centerX, centerY - canvas.height * 0.06)
-
-        // Button
-        const btnW = Math.round(canvas.width * 0.25)
-        const btnH = Math.round(canvas.height * 0.08)
-        const btnX = Math.round(centerX - btnW / 2)
-        const btnY = Math.round(centerY)
-        // Store rect for click detection
-        this.state.endButtonRect = { x: btnX, y: btnY, w: btnW, h: btnH }
-
-        // Button style
-        ctx.fillStyle = "#2196F3"
-        ctx.strokeStyle = "#0b79d0"
-        ctx.lineWidth = 2
-        ctx.fillRect(btnX, btnY, btnW, btnH)
-        ctx.strokeRect(btnX, btnY, btnW, btnH)
-        ctx.fillStyle = "#fff"
-        ctx.font = `${Math.round(btnH * 0.45)}px Arial`
-        ctx.fillText(this.state.continueLabel || "Continue", centerX, btnY + Math.round(btnH * 0.66))
+        this.drawTunnelGradient()
+        if (this.state.showBreakText) {
+            ctx.fillStyle = "white"
+            ctx.font = `${this.state.canvas.height * 0.053}px Arial`
+            ctx.textAlign = "center"
+            ctx.fillText("Press SPACE to continue", this.state.canvas.width / 2, (2.5 / 3) * this.state.canvas.height)
+        }
         ctx.restore()
     },
 
     /**
-     * Draws the stimulus if it's visible or animating.
+     * Draws the stimulus if it's visible or animating (catch -> player, timeout -> sideways fade).
      */
     drawStimulus: function () {
         if (this.state.stimulus.exiting) {
@@ -735,43 +380,30 @@ const level1 = {
             if (this.state.stimulus.exitType === "catch") {
                 const playerCenterX = this.state.player.x + this.state.player.width / 2
                 const playerCenterY = this.state.player.y + this.state.player.height / 2
-
-                // Interpolate position towards the player's center
                 const targetX = playerCenterX - (this.state.stimulus.exitInitialWidth * (1 - progress)) / 2
                 const targetY = playerCenterY - (this.state.stimulus.exitInitialHeight * (1 - progress)) / 2
                 currentX = this.state.stimulus.exitInitialX + (targetX - this.state.stimulus.exitInitialX) * progress
                 currentY = this.state.stimulus.exitInitialY + (targetY - this.state.stimulus.exitInitialY) * progress
-
-                // Interpolate size
                 currentWidth = this.state.stimulus.exitInitialWidth * (1 - progress)
                 currentHeight = this.state.stimulus.exitInitialHeight * (1 - progress)
             } else if (this.state.stimulus.exitType === "timeout") {
-                // Move sideways off the screen
                 const exitDistance = this.state.canvas.width / 2
                 const direction = this.state.stimulus.exitInitialX > this.state.canvas.width / 2 ? 1 : -1
                 currentX = this.state.stimulus.exitInitialX + direction * exitDistance * progress
-                // Fade out
                 this.state.ctx.globalAlpha = 1 - progress
             }
 
             this.state.ctx.drawImage(this.assets.imgStimulus, currentX, currentY, currentWidth, currentHeight)
-            this.state.ctx.globalAlpha = 1 // Reset alpha
+            this.state.ctx.globalAlpha = 1
         } else if (this.state.stimulus.visible) {
             this.state.ctx.drawImage(
                 this.assets.imgStimulus,
                 this.state.stimulus.x,
                 this.state.stimulus.y,
                 this.state.stimulus.width,
-                this.state.stimulus.height
+                this.state.stimulus.height,
             )
         }
-    },
-
-    /**
-     * Clears the entire canvas.
-     */
-    clearCanvas: function () {
-        this.state.ctx.clearRect(0, 0, this.state.canvas.width, this.state.canvas.height)
     },
 
     /**
@@ -785,31 +417,26 @@ const level1 = {
         }
         this.state.pendingStimulusTimeoutId = setTimeout(() => {
             this.state.pendingStimulusTimeoutId = null
-            // Prepare stimulus
             this.state.stimulus.x = Math.random() * (this.state.canvas.width - this.state.stimulus.width)
             const maxY = this.state.canvas.height - this.state.stimulus.height - this.params.stimulusFallDistancePx
             this.state.stimulus.y = Math.random() * maxY
-            this.state.stimulus.initialY = this.state.stimulus.y // Store the initial Y for the fall animation
+            this.state.stimulus.initialY = this.state.stimulus.y
             this.state.stimulus.visible = true
             this.state.stimulus.exiting = false
             this.state.startTime = this.now()
-            // Marker flash on stimulus onset (if engine marker active)
             if (typeof DoggoNogoEngine !== "undefined" && typeof DoggoNogoEngine.flashMarker === "function") {
                 DoggoNogoEngine.flashMarker()
             }
-            // Count this as a presented trial
             this.state.trials++
 
-            // Set per-trial max RT
             this.state.maxRT = 2 * this.state.medianRT
-            if (this.state.currentTrialTimeoutId) {
-                clearTimeout(this.state.currentTrialTimeoutId)
-            }
+            if (this.state.currentTrialTimeoutId) clearTimeout(this.state.currentTrialTimeoutId)
             this.state.currentTrialTimeoutId = setTimeout(() => {
-                // Timeout: slow (0 points)
                 this.state.currentTrialTimeoutId = null
                 if (this.state.gameState !== "playing") return
-                if (this.state.stimulus.visible) this.startStimulusExit && this.startStimulusExit("timeout")
+                if (this.state.stimulus.visible && typeof DoggoNogoCore !== "undefined") {
+                    DoggoNogoCore.startStimulusExit(this.state, () => this.now(), "timeout")
+                }
                 this.finishTrial({
                     type: "timeout",
                     points: 0,
@@ -824,55 +451,39 @@ const level1 = {
 
     /**
      * Finishes a trial: updates score, counters, checks end, or schedules next trial.
-     * @param {{ type: 'fast'|'slow'|'early'|'timeout', points: number, rt?: number, includeInMedian?: boolean, stimulusX?: number, stimulusY?: number }} outcome
      */
     finishTrial: function (outcome) {
-        // Update score and show feedback text
         this.state.score += outcome.points
         if (typeof this.state.phaseFloorScore === "number") {
             this.state.score = Math.max(this.state.score, this.state.phaseFloorScore)
         }
         this.showScoreDelta(outcome.points)
-
-        // Handle sounds and feedback bubbles
         this._handleTrialOutcomeFeedback(outcome)
-
-        // Update running median RT
         this._updateReactionTimeStats(outcome)
-
-        // Log the data for this trial
         this._logTrialData(outcome)
-
-        // Update last trial type for streak tracking
         this.state.lastTrialType = outcome.type
-
-        // Check if the phase or level has ended, otherwise start a new trial
         this._checkForPhaseOrLevelEnd()
     },
 
-    /**
-     * Shows feedback bubbles and plays sounds based on the trial outcome.
-     * @param {object} outcome - The outcome object from finishTrial.
-     * @private
-     */
+    /** Shows feedback bubbles and plays sounds based on the trial outcome. */
     _handleTrialOutcomeFeedback: function (outcome) {
         const bubbleX = this.state.player.x + this.state.player.width / 2
         const bubbleY = this.state.player.y
+        const play = typeof DoggoNogoCore !== "undefined" ? DoggoNogoCore.safePlay : this.safePlay
 
         if (outcome.type === TrialTypes.SLOW) {
-            ;(typeof DoggoNogoCore !== "undefined" ? DoggoNogoCore.safePlay : this.safePlay)(this.assets.soundSlow)
+            play(this.assets.soundSlow)
             this.showFeedbackBubble("slow", bubbleX, bubbleY)
-            this.state.lastFastFeedback = 0 // Reset fast streak
+            this.state.lastFastFeedback = 0
         } else if (outcome.type === TrialTypes.TIMEOUT) {
             this.showFeedbackBubble("late", bubbleX, bubbleY)
-            this.state.lastFastFeedback = 0 // Reset fast streak
+            this.state.lastFastFeedback = 0
         } else if (outcome.type === TrialTypes.EARLY) {
-            ;(typeof DoggoNogoCore !== "undefined" ? DoggoNogoCore.safePlay : this.safePlay)(this.assets.soundEarly)
+            play(this.assets.soundEarly)
             this.showFeedbackBubble("early", bubbleX, bubbleY)
             this.state.lastFastFeedback = 0
-            this.state.earlyFlashUntil = this.now() + this.params.earlyFlashDuration
+            this.state.flashUntil = this.now() + this.params.flashDuration
         } else if (outcome.type === TrialTypes.FAST) {
-            // Logic for fast streak feedback
             if (this.state.lastTrialType === TrialTypes.FAST) {
                 this.state.lastFastFeedback = (this.state.lastFastFeedback % 3) + 1
             } else {
@@ -882,11 +493,7 @@ const level1 = {
         }
     },
 
-    /**
-     * Updates the running reaction time median if the trial is valid.
-     * @param {object} outcome - The outcome object from finishTrial.
-     * @private
-     */
+    /** Updates the running reaction time median if the trial is valid. */
     _updateReactionTimeStats: function (outcome) {
         if (outcome.includeInMedian && typeof outcome.rt === "number") {
             this.state.reactionTimes.push(outcome.rt)
@@ -894,78 +501,41 @@ const level1 = {
         }
     },
 
-    /**
-     * Logs the data for the completed trial.
-     * @param {object} outcome - The outcome object from finishTrial.
-     * @private
-     */
+    /** Logs the data record for the completed trial. */
     _logTrialData: function (outcome) {
-        if (outcome.timestamp) {
-            const rtVal = outcome.type === TrialTypes.EARLY || outcome.type === TrialTypes.TIMEOUT ? null : outcome.rt
-            this.state.data.push({
-                Level: "level 1",
-                Phase: this.state.phaseIndex + 1,
-                TrialType: this.getTrialTypeLabel(outcome.type),
-                Time: outcome.timestamp,
-                Trial: this.state.trials,
-                RT: rtVal === null ? "NA" : rtVal,
-                Error: outcome.type === TrialTypes.EARLY || outcome.type === TrialTypes.TIMEOUT ? 1 : 0,
-                Threshold: typeof outcome.thresholdUsed === "number" ? outcome.thresholdUsed : this.getEffectiveThreshold(),
-                Score: this.state.score,
-                ScoreChange: outcome.points,
-                ResponseKey: outcome.responseKey || (outcome.type === TrialTypes.TIMEOUT ? "NA" : "ArrowDown"),
-                Correct:
-                    typeof outcome.correct === "boolean"
-                        ? outcome.correct
-                            ? 1
-                            : 0
-                        : outcome.type === TrialTypes.FAST || outcome.type === TrialTypes.SLOW
+        if (!outcome.timestamp) return
+        const rtVal = outcome.type === TrialTypes.EARLY || outcome.type === TrialTypes.TIMEOUT ? null : outcome.rt
+        this.state.data.push({
+            Level: "level 1",
+            Phase: this.state.phaseIndex + 1,
+            TrialType: this.getTrialTypeLabel(outcome.type),
+            Time: outcome.timestamp,
+            Trial: this.state.trials,
+            RT: rtVal === null ? "NA" : rtVal,
+            Error: outcome.type === TrialTypes.EARLY || outcome.type === TrialTypes.TIMEOUT ? 1 : 0,
+            Threshold: typeof outcome.thresholdUsed === "number" ? outcome.thresholdUsed : this.getEffectiveThreshold(),
+            Score: this.state.score,
+            ScoreChange: outcome.points,
+            ResponseKey: outcome.responseKey || (outcome.type === TrialTypes.TIMEOUT ? "NA" : "ArrowDown"),
+            Correct:
+                typeof outcome.correct === "boolean"
+                    ? outcome.correct
                         ? 1
-                        : 0,
-                // Normalized stimulus position (percent of canvas). Canvas size logged for reconstruction.
-                StimulusX:
-                    this.state.canvas && this.state.canvas.width
-                        ? ((typeof outcome.stimulusX === "number" ? outcome.stimulusX : this.state.stimulus.x) / this.state.canvas.width) *
-                          100
-                        : null,
-                StimulusY:
-                    this.state.canvas && this.state.canvas.height
-                        ? ((typeof outcome.stimulusY === "number" ? outcome.stimulusY : this.state.stimulus.y) / this.state.canvas.height) *
-                          100
-                        : null,
-                CanvasWidth: this.state.canvas ? this.state.canvas.width : null,
-                CanvasHeight: this.state.canvas ? this.state.canvas.height : null,
-            })
-        }
-    },
-
-    /**
-     * Checks if the current phase or the entire level is complete.
-     * If not, starts a new trial.
-     * @private
-     */
-    _checkForPhaseOrLevelEnd: function () {
-        const epsilon = 1e-6
-        const currentPhaseTarget = this.ensurePhaseTarget()
-        if (this.state.score + epsilon >= this.state.phaseFloorScore + currentPhaseTarget) {
-            if (this.state.phaseIndex < 2) {
-                this.startPhaseBreak()
-            } else {
-                this.endLevel()
-            }
-        } else {
-            this.startNewTrial()
-        }
-    },
-
-    /**
-     * Compute the total score required to finish the level.
-     */
-    getTotalScoreRequired: function () {
-        // Sum the per-phase targets (using computed ones for past/current phases and estimates for future phases)
-        const targets = this.getPhaseTargets()
-        const total = targets.reduce((a, b) => a + b, 0)
-        return Math.max(1, total)
+                        : 0
+                    : outcome.type === TrialTypes.FAST || outcome.type === TrialTypes.SLOW
+                      ? 1
+                      : 0,
+            StimulusX:
+                this.state.canvas && this.state.canvas.width
+                    ? ((typeof outcome.stimulusX === "number" ? outcome.stimulusX : this.state.stimulus.x) / this.state.canvas.width) * 100
+                    : null,
+            StimulusY:
+                this.state.canvas && this.state.canvas.height
+                    ? ((typeof outcome.stimulusY === "number" ? outcome.stimulusY : this.state.stimulus.y) / this.state.canvas.height) * 100
+                    : null,
+            CanvasWidth: this.state.canvas ? this.state.canvas.width : null,
+            CanvasHeight: this.state.canvas ? this.state.canvas.height : null,
+        })
     },
 
     /**
@@ -984,9 +554,7 @@ const level1 = {
         return targets
     },
 
-    /**
-     * Compute or return the target score for the current phase; computes and stores if missing.
-     */
+    /** Compute or return the target score for the current phase; computes and stores if missing. */
     ensurePhaseTarget: function () {
         if (!this.state.phaseRequiredScores[this.state.phaseIndex] || this.state.phaseRequiredScores[this.state.phaseIndex] <= 0) {
             this.state.phaseRequiredScores[this.state.phaseIndex] = this.computePhaseTarget(this.state.phaseIndex)
@@ -996,128 +564,37 @@ const level1 = {
 
     /**
      * Compute the required score for a given phase index based on remaining trials and an assumed
-     * fast-rate. Conservative estimate: assume 50% of the phase's trials will be fast, each worth at least minScore.
-     * Enforces a minimum per-phase target = max(minScore, (minTrialsPerPhase/2) * minScore).
+     * 50% fast-rate. Enforces a minimum per-phase target = max(minScore, (minTrialsPerPhase/2)*minScore).
      */
     computePhaseTarget: function (phaseIdx) {
         const phasesRemaining = Math.max(1, 3 - phaseIdx)
         const trialsLeft = Math.max(0, this.params.trialsNumber - this.state.trials)
         const trialsThisPhase = Math.ceil(trialsLeft / phasesRemaining)
-        const assumedFastRate = 0.5
-        const expectedFast = Math.floor(trialsThisPhase * assumedFastRate)
+        const expectedFast = Math.floor(trialsThisPhase * 0.5)
         const estimatedTarget = expectedFast * this.params.minScore
-        // Minimum per-phase target
         const minTargetByTrials = (this.params.minTrialsPerPhase / 2) * this.params.minScore
         return Math.max(this.params.minScore, minTargetByTrials, estimatedTarget)
     },
 
-    /**
-     * Returns the effective threshold used for fast/slow classification.
-     * Threshold = medianRT / gameDifficulty
-     */
-    getEffectiveThreshold: function () {
-        const divisor = this.params.gameDifficulty && this.params.gameDifficulty > 0 ? this.params.gameDifficulty : 1
-        return this.state.medianRT / divisor
-    },
-
-    /**
-     * Manages the timed sequence of events during a phase break.
-     */
+    /** Manages the timed sequence of events during a phase break (evolve sprite + sparkles + prompt). */
     updateBreak: function () {
-        const now = this.now()
-        const elapsed = now - this.state.breakStartTime
-
-        // State 1: Overlay has just appeared. Wait 1s for effects.
+        const elapsed = this.now() - this.state.breakStartTime
         if (this.state.breakState === "started" && elapsed > 1000) {
-            // Play evolution sound
             DoggoNogoCore.safePlay(this.assets.soundEvolve)
-
-            // Create sparkles around the player
             const playerCenterX = this.state.player.x + this.state.player.width / 2
             const playerCenterY = this.state.player.y + this.state.player.height / 2
-            this.createSparkles(playerCenterX, playerCenterY, 50) // Increased count
-
-            // Update player sprite
-            if (this.state.phaseIndex === 1) {
-                this.assets.imgPlayer = this.assets.imgPlayer2
-            } else if (this.state.phaseIndex === 2) {
-                this.assets.imgPlayer = this.assets.imgPlayer3
-            }
-
+            this.createSparkles(playerCenterX, playerCenterY, 50)
+            if (this.state.phaseIndex === 1) this.assets.imgPlayer = this.assets.imgPlayer2
+            else if (this.state.phaseIndex === 2) this.assets.imgPlayer = this.assets.imgPlayer3
             this.state.breakState = "effects"
         }
-
-        // State 2: Effects are playing. Wait another 1s for the prompt.
         if (this.state.breakState === "effects" && elapsed > 2000) {
             this.state.showBreakText = true
             this.state.breakState = "ready"
         }
     },
 
-    /**
-     * Initiates a phase break and waits for SPACE to resume.
-     */
-    startPhaseBreak: function () {
-        // Advance to next phase
-        this.state.phaseIndex = Math.min(2, this.state.phaseIndex + 1)
-        this.state.inBreak = true
-        this.state.breakState = "started"
-        this.state.breakStartTime = this.now()
-        this.state.showBreakText = false
-        // Shared phase completion sound
-        if (typeof DoggoNogoCore !== "undefined") DoggoNogoCore.playPhaseComplete(this)
-
-        // Stop any pending timers and hide stimulus
-        if (this.state.pendingStimulusTimeoutId) {
-            clearTimeout(this.state.pendingStimulusTimeoutId)
-            this.state.pendingStimulusTimeoutId = null
-        }
-        if (this.state.currentTrialTimeoutId) {
-            clearTimeout(this.state.currentTrialTimeoutId)
-            this.state.currentTrialTimeoutId = null
-        }
-        this.state.stimulus.visible = false
-        this.state.stimulus.exiting = false
-
-        // Update the phase floor and score immediately
-        if (this.state.phaseIndex === 1) {
-            this.state.phaseFloorScore = this.state.phaseRequiredScores[0]
-            this.state.score = this.state.phaseFloorScore
-            this.state.phaseRequiredScores[1] = this.computePhaseTarget(1)
-        } else if (this.state.phaseIndex === 2) {
-            this.state.phaseFloorScore = this.state.phaseRequiredScores[0] + this.state.phaseRequiredScores[1]
-            this.state.score = this.state.phaseFloorScore
-            this.state.phaseRequiredScores[2] = this.computePhaseTarget(2)
-        }
-    },
-
-    /**
-     * Resumes gameplay from a phase break.
-     */
-    resumeFromBreak: function () {
-        if (!this.state.inBreak || this.state.breakState !== "ready") return
-        this.state.inBreak = false
-        this.state.breakState = "idle"
-        // Start next trial
-        this.startNewTrial()
-    },
-
-    /**
-     * Compute median via sort (O(n log n) per update). Simpler and sufficient for small n.
-     */
-    computeMedian: function (arr) {
-        if (!arr || arr.length === 0) return this.state.medianRT
-        const sorted = [...arr].sort((a, b) => a - b)
-        const mid = Math.floor(sorted.length / 2)
-        return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
-    },
-
-    /**
-     * Creates a burst of particles (sparkles) at a specific location.
-     * @param {number} x - The starting x-coordinate.
-     * @param {number} y - The starting y-coordinate.
-     * @param {number} count - The number of particles to create.
-     */
+    /** Creates a burst of golden sparkles at a location (evolution effect). */
     createSparkles: function (x, y, count) {
         DoggoNogoCore.createParticles(this, x, y, count, {
             speedMin: 2,
@@ -1131,94 +608,13 @@ const level1 = {
     },
 
     /**
-     * Updates the state of all active particles.
-     */
-    updateParticles: function () {
-        DoggoNogoCore.updateParticles(this)
-    },
-
-    /**
-     * Updates the state of all active feedback bubbles (e.g., for fading out).
-     */
-    updateFeedbackBubbles: function () {
-        DoggoNogoCore.updateFeedbackBubbles(this, 500)
-    },
-
-    /**
-     * Cleanly ends the level, removing listeners and timers and calling the end callback.
-     */
-    endLevel: function () {
-        this.state.gameState = "done"
-        DoggoNogoCore.safePlay(this.assets.soundLevelUp)
-        document.removeEventListener("keydown", this.boundKeyDownHandler)
-        try {
-            this.assets.soundBackground.pause()
-            this.assets.soundBackground.currentTime = 0
-        } catch (e) {}
-        // Clear timers via core helper
-        if (typeof DoggoNogoCore !== "undefined") DoggoNogoCore.clearTrialTimers(this.state)
-        // If configured to show in-game Continue button, draw overlay and wait for click
-        if (this.state.showContinueButton) {
-            this.state.endOverlayVisible = true
-            return
-        }
-        // Otherwise, end immediately
-        this.endGameCallback(this.state)
-    },
-
-    /**
-     * Handle clicks for the end overlay button.
-     */
-    handleClick: function (e) {
-        if (!(this.state.gameState === "done" && this.state.endOverlayVisible && this.state.showContinueButton)) return
-        const rect = this.state.canvas.getBoundingClientRect()
-        const scaleX = this.state.canvas.width / rect.width
-        const scaleY = this.state.canvas.height / rect.height
-        const x = (e.clientX - rect.left) * scaleX
-        const y = (e.clientY - rect.top) * scaleY
-        const btn = this.state.endButtonRect
-        if (x >= btn.x && x <= btn.x + btn.w && y >= btn.y && y <= btn.y + btn.h) {
-            // Proceed
-            this.state.endOverlayVisible = false
-            // Clean click handler to avoid leaks
-            if (this.boundClickHandler) {
-                this.state.canvas.removeEventListener("click", this.boundClickHandler)
-            }
-            this.endGameCallback(this.state)
-        }
-    },
-
-    /**
-     * Makes the player jump with a height proportional to the reaction time.
-     * @param {number} reactionTime - The player's reaction time in milliseconds.
-     */
-    jump: function (reactionTime) {
-        if (this.state.player.jumping) return
-        this.state.player.jumping = true
-
-        // Clamp the reaction time
-        const effectiveRT = Math.min(reactionTime, this.state.maxRT)
-
-        // Linearly interpolate jump strength
-        const jumpRange = this.params.maxJumpStrength - this.params.minJumpStrength
-        const rtRatio = 1 - effectiveRT / this.state.maxRT
-        const jumpPower = this.params.minJumpStrength + jumpRange * rtRatio
-
-        this.state.player.velocityY = jumpPower
-    },
-
-    /**
      * Handles the keydown event for player input.
-     * @param {KeyboardEvent} e - The keyboard event object.
      */
     handleKeyDown: function (e) {
-        // Ignore input unless actively playing
         if (this.state.gameState !== "playing") return
 
-        // Dev/Test shortcut: Press 's' to skip the remainder of the level (fast-forward to end)
+        // Dev/Test shortcut: 's' to skip the remainder of the level
         if (e.key === "s" || e.key === "S") {
-            // End immediately without awarding extra points
-            // Clean up timers and go straight to end screen
             if (typeof DoggoNogoCore !== "undefined") DoggoNogoCore.clearTrialTimers(this.state)
             this.endLevel()
             return
@@ -1235,9 +631,7 @@ const level1 = {
 
         // Early press before stimulus
         if (!this.state.stimulus.visible && !this.state.stimulus.exiting) {
-            // Cancel pending stimulus
             if (typeof DoggoNogoCore !== "undefined") DoggoNogoCore.clearTrialTimers(this.state)
-            // Penalty for early press
             const nowISO = new Date().toISOString()
             const thresholdUsed = this.getEffectiveThreshold()
             this.finishTrial({ type: "early", points: -this.params.minScore, includeInMedian: false, timestamp: nowISO, thresholdUsed })
@@ -1247,38 +641,24 @@ const level1 = {
         // Valid press while stimulus is visible
         if (this.state.stimulus.visible && !this.state.stimulus.exiting) {
             const reactionTime = this.now() - this.state.startTime
-
-            // Stop the per-trial timeout
             if (this.state.currentTrialTimeoutId) {
                 clearTimeout(this.state.currentTrialTimeoutId)
                 this.state.currentTrialTimeoutId = null
             }
+            if (typeof DoggoNogoCore !== "undefined") DoggoNogoCore.startStimulusExit(this.state, () => this.now(), "catch")
 
-            // Prepare exit animation
-            this.state.stimulus.visible = false
-            this.state.stimulus.exiting = true
-            this.state.stimulus.exitType = "catch" // A valid press is always a "catch"
-            this.state.stimulus.exitStartTime = this.now()
-            this.state.stimulus.exitInitialX = this.state.stimulus.x
-            this.state.stimulus.exitInitialY = this.state.stimulus.y
-            this.state.stimulus.exitInitialWidth = this.state.stimulus.width
-            this.state.stimulus.exitInitialHeight = this.state.stimulus.height
-
-            // Classify and score
-            // Determine threshold for fast/slow
             const threshold = this.getEffectiveThreshold()
             const trialMaxRT = this.state.maxRT || 2 * this.state.medianRT
 
             if (reactionTime > threshold) {
                 // Slow trial
                 const include = reactionTime <= trialMaxRT
-                const nowISO = new Date().toISOString()
                 this.finishTrial({
                     type: TrialTypes.SLOW,
                     points: 0,
                     rt: reactionTime,
                     includeInMedian: include,
-                    timestamp: nowISO,
+                    timestamp: new Date().toISOString(),
                     thresholdUsed: threshold,
                     stimulusX: this.state.stimulus.x,
                     stimulusY: this.state.stimulus.y,
@@ -1292,18 +672,14 @@ const level1 = {
             const clampedRT = Math.min(reactionTime, trialMaxRT)
             const nRT = 1 - clampedRT / Math.max(1, trialMaxRT)
             const points = this.params.minScore + nRT * (this.params.maxScore - this.params.minScore)
-
-            // Feedback and jump/sound
             DoggoNogoCore.safePlay(this.assets.soundFast)
             this.jump(reactionTime)
-
-            const nowISO = new Date().toISOString()
             this.finishTrial({
                 type: TrialTypes.FAST,
                 points,
                 rt: reactionTime,
                 includeInMedian: true,
-                timestamp: nowISO,
+                timestamp: new Date().toISOString(),
                 thresholdUsed: threshold,
                 responseKey: "ArrowDown",
                 correct: true,
@@ -1311,38 +687,24 @@ const level1 = {
         }
     },
 
-    /**
-     * Shows a score feedback message for a short duration.
-     * @param {string} text - The text to display.
-     */
-    showScoreFeedback: function (text) {
-        if (typeof DoggoNogoCore !== "undefined") DoggoNogoCore.showScoreFeedback(this, text)
-    },
-
-    /**
-     * Creates a feedback bubble at a specific location.
-     * @param {'slow' | 'late' | 'fast1' | 'fast2' | 'fast3'} type - The type of feedback to show.
-     * @param {number} x - The center x-coordinate for the bubble's anchor point.
-     * @param {number} y - The top y-coordinate for the bubble's anchor point.
-     */
-    showFeedbackBubble: function (type, x, y) {
-        if (typeof DoggoNogoCore !== "undefined") DoggoNogoCore.showFeedbackBubble(this, type, x, y)
-    },
+    /** Shows a transient score-delta feedback message (e.g. "+150"). */
     showScoreDelta: function (points) {
-        const sign = points > 0 ? "+" : points < 0 ? "" : "" // negatives already include '-'
+        const sign = points > 0 ? "+" : "" // negatives already include '-'
         this.state.scoreTextPoints = points
         this.showScoreFeedback(`${sign}${Math.round(points)}`)
     },
-    // Removed local clearTrialTimers and startStimulusExit (handled by DoggoNogoCore)
+
+    /** Fallback audio play (base/DoggoNogoCore.safePlay is preferred when available). */
     safePlay: function (audioEl, reset = true) {
         if (!audioEl) return
         try {
             if (reset) audioEl.currentTime = 0
             audioEl.play()
-        } catch (e) {}
-    },
-    getTrialTypeLabel: function (type) {
-        if (type === "timeout") return "Timeout"
-        return type.charAt(0).toUpperCase() + type.slice(1)
+        } catch (e) {
+            console.debug("safePlay failed", e)
+        }
     },
 }
+
+// Inherit shared gameplay mechanics from the base level.
+Object.setPrototypeOf(level1, DoggoNogoBaseLevel)
