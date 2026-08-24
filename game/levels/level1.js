@@ -43,8 +43,9 @@ const level1 = {
     params: {
         trialsNumber: 12, // The (theoretical) number of valid trials for the entire level
         minTrialsPerPhase: 4, // Minimum (theoretical) trials the player should effectively complete per phase
-        minISI: 1000, // Minimum Inter-Stimulus Interval
-        maxISI: 3000, // Maximum Inter-Stimulus Interval
+        minISI: 500, // Floor (ms)
+        maxISI: 3500, // Ceiling (ms)
+        meanISIDecay: 1000, // Scale parameter (ms) for the pseudoexponential ISI distribution
         minScore: 100, // Minimum score awarded for a fast trial
         maxScore: 200, // Maximum score awarded for a fast trial
         gameDifficulty: 1, // dimensionless; effective threshold = medianRT / gameDifficulty
@@ -410,7 +411,10 @@ const level1 = {
      * Starts a new trial by scheduling the next stimulus appearance.
      */
     startNewTrial: function () {
-        const delay = Math.random() * (this.params.maxISI - this.params.minISI) + this.params.minISI
+        const delay =
+            typeof DoggoNogoCore !== "undefined" && DoggoNogoCore.samplePseudoExponentialISI
+                ? DoggoNogoCore.samplePseudoExponentialISI(this.params.minISI, this.params.maxISI, this.params.meanISIDecay)
+                : Math.min(this.params.maxISI, this.params.minISI - (this.params.meanISIDecay || 800) * Math.log(1 - Math.random()))
         if (this.state.pendingStimulusTimeoutId) {
             clearTimeout(this.state.pendingStimulusTimeoutId)
             this.state.pendingStimulusTimeoutId = null

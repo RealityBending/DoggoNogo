@@ -51,7 +51,7 @@ Levels expose a uniform interface (`load`, `showInstructionScreen`, `start`, `up
 
 **Scientific summary**
 
-Level 1 implements a **Simple Reaction Time (SRT) task**, one of the most fundamental measures in cognitive neuroscience. A single stimulus appears at a pseudo-random screen position after a variable inter-stimulus interval (ISI: 1-3 s); the participant must press a single key (`ArrowDown`) as quickly as possible. Because there is only one possible stimulus and one possible response, the task requires no discrimination or selection: it measures the lower bound of sensorimotor processing speed free from decision conflict.
+Level 1 implements a **Simple Reaction Time (SRT) task**, one of the most fundamental measures in cognitive neuroscience. A single stimulus appears at a pseudo-random screen position after a variable inter-stimulus interval (ISI: 0.5 - 3.5 s); the participant must press a single key (`ArrowDown`) as quickly as possible. Because there is only one possible stimulus and one possible response, the task requires no discrimination or selection: it measures the lower bound of sensorimotor processing speed free from decision conflict.
 
 Responses are classified as:
 - **Fast** (RT ≤ adaptive threshold): rewarded with scaled points (100–200).
@@ -69,6 +69,7 @@ The level is structured as a plain JavaScript object (`level1`) with three top-l
 
 Key implementation details:
 
+- **ISI sampling**: Both levels draw the inter-stimulus interval from `DoggoNogoCore.samplePseudoExponentialISI(minISI, maxISI, meanISIDecay)` (`game/game.js`) rather than a uniform distribution, so the hazard of stimulus onset stays roughly constant over the wait instead of rising as the interval elapses — reducing delay vs. temporal-expectancy confounds in RT. Min. ISI = 500ms, Max. ISI = 3500ms, Mean decay = 1000ms correspond to ~5% of clipped trials at the upper bound and an average of 1450ms.
 - **Stimulus placement**: The stimulus spawns at a random horizontal position (left/right thirds of the canvas) and falls a small fixed distance (`stimulusFallDistance = 5 % of canvas height`) before the response window closes, providing a visual onset cue.
 - **Physics**: On a valid keypress the player sprite performs a jump whose vertical velocity is linearly interpolated between `minJumpStrength` and `maxJumpStrength` based on normalised RT, giving faster responses a visually more impressive jump.
 - **Trial count and adaptive phase targets**: The level is divided into **3 phases** separated by animated break sequences (tunnel-vision overlay + sprite evolution). `trialsNumber` is a *theoretical target*, not a hard cap — actual trial count depends on performance. At each phase break the score target for the next phase is recomputed: it distributes the remaining theoretical valid trials across remaining phases, assumes ~50 % will be fast (earning at least `minScore`), and takes the max of that estimate and the per-phase floor `max(minScore, (minTrialsPerPhase / 2) × minScore)`. A consistently fast player reaches targets slightly sooner (fewer actual trials); a slower/less accurate player needs more — but recomputing at each break nudges the total toward `trialsNumber`. Early presses and timeouts are excluded from the trial counter.

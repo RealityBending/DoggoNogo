@@ -159,6 +159,25 @@
                     console.debug("safePlay failed", e)
                 }
             },
+            // Pseudoexponential ISIs offer an important advantage over uniformly distributed ISIs because
+            // they introduce variability in delay while minimising temporal expectation effects. With a
+            // uniform distribution, the conditional probability of stimulus onset increases as the interval
+            // progresses, such that longer elapsed delays become increasingly predictive of imminent stimulus
+            // onset and may induce anticipatory changes in attention, motor preparation, or evidence sampling.
+            // By contrast, a pseudoexponential distribution exploits the memoryless property of the exponential
+            // distribution to produce an approximately constant hazard function, meaning that the passage of
+            // time provides relatively little information about when the stimulus will occur. A minimum floor
+            // can prevent implausibly abrupt onsets, while a maximum ceiling limits excessively long waits
+            // that could promote attentional lapses (Boag et al., 2025; Luce, 1991). Thus, pseudoexponential
+            // ISIs help decouple the effects of actual delay duration from temporal expectancy, making it
+            // easier to interpret relationships between ISI and subsequent decision-making parameters as
+            // effects of elapsed time itself rather than increasing anticipation of the upcoming stimulus.
+            // Min. ISI = 500ms, Max. ISI = 3500ms, Mean decay = 1000ms (default values) correspond to ~5%
+            // of clipped trials at the upper bound (average of 1450ms).
+            samplePseudoExponentialISI(minISI = 500, maxISI = 3500, meanDecay = 1000) {
+                const expDelay = -meanDecay * Math.log(1 - Math.random())
+                return Math.min(maxISI, minISI + expDelay)
+            },
             // General asset preloader for standalone mode.
             // Accepts a basePath and optional manifest object ({ images:[], audio:[] }).
             // Returns a Promise that resolves when all listed assets are loaded (best-effort).

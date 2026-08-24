@@ -43,8 +43,9 @@ const level2 = {
     params: {
         trialsNumber: 18,
         minTrialsPerPhase: 4,
-        minISI: 1000,
-        maxISI: 3000,
+        minISI: 500, // Floor (ms)
+        maxISI: 3500, // Ceiling (ms)
+        meanISIDecay: 1000, // Scale parameter (ms) for the pseudoexponential ISI distribution
         minScore: 100,
         maxScore: 200,
         gameDifficulty: 1,
@@ -400,7 +401,10 @@ const level2 = {
     },
 
     startNewTrial: function () {
-        const delay = Math.random() * (this.params.maxISI - this.params.minISI) + this.params.minISI
+        const delay =
+            typeof DoggoNogoCore !== "undefined" && DoggoNogoCore.samplePseudoExponentialISI
+                ? DoggoNogoCore.samplePseudoExponentialISI(this.params.minISI, this.params.maxISI, this.params.meanISIDecay)
+                : Math.min(this.params.maxISI, this.params.minISI - (this.params.meanISIDecay || 800) * Math.log(1 - Math.random()))
         if (this.state.pendingStimulusTimeoutId) clearTimeout(this.state.pendingStimulusTimeoutId)
         this.state.pendingStimulusTimeoutId = setTimeout(() => {
             this.state.pendingStimulusTimeoutId = null
