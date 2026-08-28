@@ -37,30 +37,29 @@
 
         <!-- STANDALONE VERSION OF THE GAME -->
 
-        <!-- Shared UI helpers -->
-        <script src="game.js"></script>
-        <!-- Shared base level logic -->
-        <script src="core.js"></script>
-        <!-- Central game engine -->
-        <script src="engine.js"></script>
-        <!-- Intro runner -->
-        <script src="intro.js"></script>
-        <!-- Level-specific game logic -->
-        <script src="levels/level1.js"></script>
-        <script src="levels/intro.js"></script>
-        <script src="levels/level2.js"></script>
-        <!-- Main game manager -->
-        <script>
-            // This script is the entry point for the standalone game.
-            // It finds the canvas, loads the necessary scripts, and starts the game engine.
+        <script type="module">
+            // Entry point for the standalone game: size the canvas, then run levels 1 -> 2 -> 3
+            // (or start partway through the chain -- see LEVELS / START_LEVEL below).
+            import { DoggoNogoCore } from "./game.js"
+            import { DoggoNogoEngine } from "./engine.js"
+            import { level1 } from "./levels/level1.js"
+            import { level2 } from "./levels/level2.js"
+            import { level3 } from "./levels/level3.js"
+            import { level1IntroSequence, level2IntroSequence } from "./levels/intro.js"
+
             const TARGET_W = 1792
             const TARGET_H = 1024
             const ASPECT = TARGET_W / TARGET_H
             const canvas = document.getElementById("gameCanvas")
 
             function sizeCanvas() {
-                const maxW = window.innerWidth
-                const maxH = window.innerHeight
+                // `innerWidth`/`innerHeight` include the scrollbar, and the canvas carries a 1px
+                // border on each side, so sizing off them leaves the page a couple of pixels
+                // scrollable -- enough for an arrow key to slide the whole canvas and look like the
+                // camera jolting. Measure the real client area and leave room for the border.
+                const BORDER = 2
+                const maxW = document.documentElement.clientWidth - BORDER
+                const maxH = document.documentElement.clientHeight - BORDER
                 // Constrain by width first
                 let w = Math.min(TARGET_W, maxW)
                 let h = Math.round(w / ASPECT)
@@ -83,40 +82,63 @@
             window.addEventListener("resize", () => {
                 sizeCanvas()
                 // Let current running level recompute sprite sizes/positions (engine also listens, but call directly for immediate effect)
-                if (window.DoggoNogoEngine && DoggoNogoEngine.level && typeof DoggoNogoEngine.level.handleResize === "function") {
+                if (DoggoNogoEngine.level && typeof DoggoNogoEngine.level.handleResize === "function") {
                     DoggoNogoEngine.level.handleResize()
                 }
             })
 
-            // The DoggoNogoEngine, DoggoNogoUI, and level objects are expected to be available globally.
-            async function preloadLevels() {
-                if (!canvas) return
-                // Create a temporary context for sizing; actual sizing already done.
-                const preloadOptions = { assetBasePath: "assets/" }
-                try {
-                    if (level1 && !level1._loaded) {
-                        await level1.load(canvas, preloadOptions)
-                        level1._loaded = true
-                    }
-                    if (level2 && !level2._loaded) {
-                        await level2.load(canvas, preloadOptions)
-                        level2._loaded = true
-                    }
-                } catch (e) {
-                    console.warn("Preload failed", e)
+            // Levels are run in order. To test a level without playing through the earlier ones,
+            // load the page with `?level=2` / `?level=3`, or change START_LEVEL below (opening the
+            // page with no `level` param writes START_LEVEL into the URL). The chosen level shows
+            // the cover screen and later ones follow it as usual.
+            const LEVELS = [
+                { level: level1, introSequence: level1IntroSequence },
+                { level: level2, introSequence: level2IntroSequence },
+                { level: level3, introSequence: null },
+            ]
+            // TEMPORARY (testing Level 3): set back to 1 to play the game from the start.
+            const START_LEVEL = 3 // 1-based; overridden by ?level=N
+
+            function resolveStartIndex() {
+                const params = new URLSearchParams(window.location.search)
+                const fromUrl = params.get("level")
+                const requested = parseInt(fromUrl === null ? START_LEVEL : fromUrl, 10)
+                if (!Number.isFinite(requested) || requested < 1 || requested > LEVELS.length) {
+                    console.warn(`Unknown start level "${fromUrl}"; starting at level 1.`)
+                    return 0
                 }
+                if (fromUrl === null) {
+                    // Show the level actually being run in the address bar, so a reload or a copied
+                    // link keeps it and it is obvious the game is not starting from the beginning.
+                    params.set("level", requested)
+                    window.history.replaceState(null, "", `${window.location.pathname}?${params}`)
+                }
+                return requested - 1
             }
 
-            function runLevel1() {
-                DoggoNogoEngine.run(canvas, level1, {
+            const startIndex = resolveStartIndex()
+
+            function runLevel(index) {
+                const { level, introSequence } = LEVELS[index]
+                const isLast = index === LEVELS.length - 1
+                DoggoNogoEngine.run(canvas, level, {
                     assetBasePath: "assets/",
-                    introSequence: typeof level1IntroSequence !== "undefined" ? level1IntroSequence : null,
-                    continueHint: "Press SPACE to continue",
-                    onFinish: () => {
+                    introSequence,
+                    // The cover belongs to the first level actually shown; chained ones go straight
+                    // to their instruction screen.
+                    skipCover: index !== startIndex,
+                    // Only the levels still to come are worth preloading.
+                    otherLevels: LEVELS.slice(index + 1).map((entry) => entry.level),
+                    continueHint: isLast ? "Press SPACE to finish" : "Press SPACE to continue",
+                    onFinish: (state) => {
+                        if (isLast) {
+                            console.log(`All levels finished. Final state level${index + 1}:`, state)
+                            return
+                        }
                         const proceed = (e) => {
                             if (e.code === "Space") {
                                 document.removeEventListener("keydown", proceed)
-                                runLevel2()
+                                runLevel(index + 1)
                             }
                         }
                         document.addEventListener("keydown", proceed)
@@ -124,37 +146,14 @@
                 })
             }
 
-            function runLevel2() {
-                if (typeof level2 === "undefined") {
-                    console.error("Level 2 script not loaded.")
-                    return
-                }
-                DoggoNogoEngine.run(canvas, level2, {
-                    assetBasePath: "assets/",
-                    skipCover: true, // start directly at level 2 instruction screen
-                    introSequence: typeof level2IntroSequence !== "undefined" ? level2IntroSequence : null,
-                    continueHint: "Press SPACE to finish",
-                    onFinish: (state) => {
-                        console.log("All levels finished. Final state level2:", state)
-                    },
-                })
-            }
-
             ;(async () => {
-                if (
-                    !canvas ||
-                    typeof DoggoNogoEngine === "undefined" ||
-                    typeof level1 === "undefined" ||
-                    typeof DoggoNogoUI === "undefined"
-                ) {
-                    console.error("Could not start level 1. Ensure canvas, engine, UI, and level scripts are loaded.")
+                if (!canvas) {
+                    console.error(`Could not start level ${startIndex + 1}: canvas not found.`)
                     return
                 }
-                // Engine now performs global + level preload internally; just call run after slight defer for paint.
-                if (typeof DoggoNogoCore !== "undefined" && DoggoNogoCore.renderLoadingScreen) {
-                    DoggoNogoCore.renderLoadingScreen(canvas, "Loading the game...")
-                }
-                setTimeout(() => runLevel1(), 150)
+                // The engine performs global + level preload internally; just call run after a slight defer for paint.
+                DoggoNogoCore.renderLoadingScreen(canvas, "Loading the game...")
+                setTimeout(() => runLevel(startIndex), 150)
             })()
         </script>
     </body>

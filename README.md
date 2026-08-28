@@ -28,10 +28,11 @@ DoggoNogo is a browser-based gamified neuropsychological battery designed to mea
 
 **Technical summary**
 
-The app is a pure client-side HTML5 application with no build step or server dependency. The rendering target is a `<canvas>` element that scales responsively to the viewport via CSS. The codebase is organized as follows:
+The app is a pure client-side HTML5 application with no build step and no dependencies. It is written as native ES modules, so it is served over HTTP rather than opened straight from the filesystem. The rendering target is a `<canvas>` element that scales responsively to the viewport via CSS. The codebase is organized as follows:
 
 | File | Role |
 |---|---|
+| `game/assets.js` | Asset manifest (`DoggoNogoAssets`) consumed by the global preloader |
 | `game/game.js` | Shared UI helpers: score-screen animation, `zScoreToQuantile`, loading screen, asset preloader (`DoggoNogoCore`), trial-type constants, end-of-level `computeIES` |
 | `game/core.js` | `DoggoNogoBaseLevel`: shared level mechanics (player physics, rendering scaffolding, phase progression, scoring helpers, input plumbing) that each level inherits via its prototype |
 | `game/engine.js` | Central `DoggoNogoEngine` — orchestrates asset loading, cover screen, intro sequence, instruction screen, `requestAnimationFrame` game loop, marker (photodiode) support, and the end-of-level score screen |
@@ -43,7 +44,7 @@ The app is a pure client-side HTML5 application with no build step or server dep
 | `game/index.html` | Standalone entry point |
 | `example_jspsych.html` | Minimal jsPsych integration example |
 
-Levels expose a uniform interface (`load`, `showInstructionScreen`, `start`, `update`, `draw`, `handleResize`) consumed by the engine, and share their common mechanics through a `DoggoNogoBaseLevel` prototype (`game/core.js`). Asset paths are relative and accept a configurable `assetBasePath` so the game can be served from any directory. An optional **marker** square (for physiological synchronisation via a photosensor) can be enabled via `markerEnabled: true` and flashes on stimulus onset or keypress.
+Levels expose a uniform interface (`load`, `showInstructionScreen`, `start`, `update`, `draw`, `handleResize`) consumed by the engine, and share their common mechanics through a `DoggoNogoBaseLevel` prototype (`game/core.js`). Each level rebuilds its mutable `state` from `getInitialState()` on every `start()`, so a level can be run more than once in a page without carrying anything over. Asset paths are relative and accept a configurable `assetBasePath` so the game can be served from any directory. An optional **marker** square (for physiological synchronisation via a photosensor) can be enabled via `markerEnabled: true` and flashes on stimulus onset.
 
 
 
@@ -69,12 +70,13 @@ The level is structured as a plain JavaScript object (`level1`) with three top-l
 
 Key implementation details:
 
+- **Stimulus timing**: Onsets are not scheduled with timers. Each trial records a due time, and the `requestAnimationFrame` loop reveals the stimulus on the first frame at or after it; because a frame drawn during callback *N* is only presented at frame *N+1*, the onset timestamp used for RT is taken from that following frame, and reaction times are computed from the `event.timeStamp` of the keypress rather than from a clock read inside the handler. This removes both timer jitter (4–15 ms) and the one-frame bias that inflates RT, at the cost of quantising onsets to the display's refresh boundaries — which is what the hardware does anyway. The realized interval is logged per trial as `ISI`, so onset accuracy can be audited offline. A response arriving before the onset frame is recorded as an early press, since the participant cannot yet have seen the stimulus.
 - **ISI sampling**: Both levels draw the inter-stimulus interval from `DoggoNogoCore.samplePseudoExponentialISI(minISI, maxISI, meanISIDecay)` (`game/game.js`) rather than a uniform distribution, so the hazard of stimulus onset stays roughly constant over the wait instead of rising as the interval elapses — reducing delay vs. temporal-expectancy confounds in RT. Min. ISI = 500ms, Max. ISI = 3500ms, Mean decay = 1000ms correspond to ~5% of clipped trials at the upper bound and an average of 1450ms.
 - **Stimulus placement**: The stimulus spawns at a random horizontal position (left/right thirds of the canvas) and falls a small fixed distance (`stimulusFallDistance = 5 % of canvas height`) before the response window closes, providing a visual onset cue.
 - **Physics**: On a valid keypress the player sprite performs a jump whose vertical velocity is linearly interpolated between `minJumpStrength` and `maxJumpStrength` based on normalised RT, giving faster responses a visually more impressive jump.
 - **Trial count and adaptive phase targets**: The level is divided into **3 phases** separated by animated break sequences (tunnel-vision overlay + sprite evolution). `trialsNumber` is a *theoretical target*, not a hard cap — actual trial count depends on performance. At each phase break the score target for the next phase is recomputed: it distributes the remaining theoretical valid trials across remaining phases, assumes ~50 % will be fast (earning at least `minScore`), and takes the max of that estimate and the per-phase floor `max(minScore, (minTrialsPerPhase / 2) × minScore)`. A consistently fast player reaches targets slightly sooner (fewer actual trials); a slower/less accurate player needs more — but recomputing at each break nudges the total toward `trialsNumber`. Early presses and timeouts are excluded from the trial counter.
 - **Sprite evolution**: At each phase break the player sprite (`imgPlayer1/2/3`) swaps, accompanied by a sparkle particle system and a sound effect, providing intrinsic gamification rewards.
-- **Data log**: Every keypress (including early presses before stimulus onset) appends a record to `level1.state.data` (also exposed as `window.level1Data`). Fields include: `RT`, `TrialType` (`"fast"/"slow"/"early"/"timeout"`), `Error` (0/1), `Points`, `Score`, `Phase`, `StimulusX/Y`, `Threshold`.
+- **Data log**: Every keypress (including early presses before stimulus onset) appends a record to `level1.state.data` (also exposed as `window.level1Data`). Fields include: `RT`, `TrialType` (`"fast"/"slow"/"early"/"timeout"`), `Error` (0/1), `Points`, `Score`, `Phase`, `StimulusX/Y`, `Threshold`, `ISI` (realized interval from scheduling to onset).
 
 
 ### Level 2
@@ -106,59 +108,10 @@ Level 2 shares the same object interface and engine as Level 1 but adds the foll
 - **Player mirroring**: The `playerFacing` state (`"left"` / `"right"`) is updated on each correct response and the sprite is horizontally flipped via `ctx.scale(-1, 1)`, reflecting the direction of the last correct response.
 - **Error handling**: An incorrect key direction triggers an error flash (red sprite tint), plays `sound_error.mp3`, and deducts points — providing salient negative feedback without ending the trial prematurely.
 - **Phase instructions**: Each inter-phase break overlay shows phase-specific instructional text (e.g., introducing vertical spawns in Phase 2) so participants understand the evolving task rules.
-- **Data log fields** (per trial): `RT`, `TrialType`, `Error`, `Points`, `Score`, `Phase`, `StimulusRegion` (`"left"/"right"/"top"/"bottom"`), `StimulusDifficulty` (`"congruent"/"neutral"/"incongruent"`), `ResponseKey`, `Threshold`.
+- **Data log fields** (per trial): `RT`, `TrialType`, `Error`, `Points`, `Score`, `Phase`, `StimulusRegion` (`"left"/"right"/"top"/"bottom"`), `StimulusDifficulty` (`"congruent"/"neutral"/"incongruent"`), `ResponseKey`, `Threshold`, `ISI`.
 
+**Potential improvements**
 
-## Potential TODOS
+- **Control Pre-Trial Sequential Carryover Effects (Gratton Effect)** :Conflict tasks exhibit strong sequential dependencies: the Simon effect is significantly reduced following an incongruent trial compared to a congruent trial. We should implement a control of trial randomization by using pseudo-random Latin squares or counterbalancing transition matrices so that the proportion of congruent-after-congruent, incongruent-after-congruent, congruent-after-incongruent, and incongruent-after-incongruent pairs are balanced. 
+- **Counterbalance Stimulus Feature Transitions (Negative Priming / Feature Binding)**: When stimulus direction or location repeats or partially alternates across consecutive trials (e.g., left fish on left $\to$ left fish on right), episodic retrieval and feature-binding costs distort reaction times.
 
-1. Consider driving the marker keypress mode and per-phase break sparkle/sound from data so
-   `updateBreak` can be unified into the base too.
-2. Cache `getPhaseTargets()` per phase change instead of recomputing every frame in the progress bar.
-3. Confirm whether `markerTriggerMode: "keypress"` is still needed; remove if obsolete.
-4. Transition from IIFEs to Native ES ModulesWhy it matters:All game logic currently executes inside anonymous wrapper functions attaching to globalThis ((function (global) { ... })(...)). Switching to ES Modules eliminates namespace pollution, makes dependency flow explicit.  
-Action Plan & Edits:
-
-HTML Entry Points (game/index.html, example_jspsych.html):
-
-Change script loading tags to <script type="module" src="...">.  
-
-game/game.js, game/core.js, game/engine.js:
-
-Replace IIFE closures with standard ES exports:
-
-export const DoggoNogoUI = { ... }
-export const DoggoNogoCore = { ... }
-export class DoggoNogoEngine { ... }
-
-game/levels/level1.js & game/levels/level2.js:
-
-Import dependencies explicitly: import { DoggoNogoBaseLevel } from '../core.js';
-Export level definitions: export const level1 = { ... };
-
-
-5. Convert Prototype Inheritance to ES6 Classes
-
-Why it matters:Setting prototypes via Object.setPrototypeOf(level1, DoggoNogoBaseLevel) impairs engine optimization, obscures inheritance hierarchies, and makes instantiating clean, isolated level instances difficult.  
-
-Action Plan & Edits:game/core.js:
-
-Convert DoggoNogoBaseLevel into an abstract base class BaseLevel containing shared physics, canvas rendering scaffolding, and timer logic.  
-
-game/levels/level1.js & game/levels/level2.js:
-
-Convert level1 and level2 into classes extending BaseLevel:
-
-``` 
-export class Level1 extends BaseLevel {
-    constructor(params = {}) {
-        super();
-        this.params = { ...defaultParams, ...params };
-        this.state = this.getInitialState();
-    }
-    // Level-specific methods (showInstructionScreen, updateStimulusMotion, etc.)
-}
-```
-
-6. Potential timing precision improvements: See https://github.com/SussexPsychologySoftware/jsPsych-RDK/blob/main/abstracted.html. engine.js is using requestAnimationFrame instead of possibly setTimeout (like jsPsych), but it missed the one-frame-off timestamp issue. Would the code in runRAFLoop could improve your stim presentation durations and RT accuracy
-
-7. Performance: Consider relying more on css animations for sprites drawn on separate canvases (or image elements even) to help. We might be considering the animations as more complicated than they are. Perhaps we're re-calculating and drawing stim for transitions that would be better handled by css animations.

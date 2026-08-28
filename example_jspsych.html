@@ -12,21 +12,13 @@
         <script src="https://unpkg.com/@jspsych/plugin-preload"></script>
         <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response"></script>
         <script src="https://unpkg.com/@jspsych/plugin-fullscreen"></script>
-        <!-- Game scripts -->
-        <script src="game/game.js"></script>
-        <script src="game/core.js"></script>
-        <script src="game/engine.js"></script>
-        <script src="game/intro.js"></script>
-        <script src="game/levels/level1.js"></script>
-        <script src="game/levels/intro.js"></script>
-        <script src="game/levels/level2.js"></script>
-        <!-- Integration helpers -->
-        <script src="game/jspsych.js"></script>
     </head>
 
     <body></body>
 
-    <script>
+    <script type="module">
+        import { DoggoNogo } from "./game/jspsych.js"
+
         // Initialize experiment =================================================
         var timeline = []
 
@@ -44,6 +36,7 @@
         // Timeline -------------------------------------------------------------------
         timeline.push(
             ...DoggoNogo.level1({
+                jsPsych,
                 includePreload: true,
                 assetBasePath: "game/assets/",
                 trialsNumber: 18,
@@ -51,6 +44,7 @@
                 fullscreen: true,
             }),
             ...DoggoNogo.level2({
+                jsPsych,
                 includePreload: true,
                 assetBasePath: "game/assets/",
                 trialsNumber: 18,

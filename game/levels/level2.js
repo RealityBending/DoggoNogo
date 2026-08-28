@@ -28,16 +28,10 @@
  * perPhaseTrials * minScore (constant across all three phases).
  */
 
-if (typeof TrialTypes === "undefined") {
-    var TrialTypes =
-        typeof DoggoNogoTrialTypes !== "undefined"
-            ? DoggoNogoTrialTypes
-            : { FAST: "fast", SLOW: "slow", EARLY: "early", TIMEOUT: "timeout", ERROR: "error" }
-} else if (typeof DoggoNogoTrialTypes !== "undefined") {
-    TrialTypes = DoggoNogoTrialTypes
-}
+import { DoggoNogoBaseLevel } from "../core.js"
+import { DoggoNogoCore, DoggoNogoTrialTypes as TrialTypes } from "../game.js"
 
-const level2 = {
+export const level2 = {
     startKeys: ["ArrowLeft", "ArrowRight"],
 
     params: {
@@ -67,6 +61,18 @@ const level2 = {
         // Conflict proportion parameters (see header documentation)
         neutralProportionPhase2: 0.5,
         incongruentProportionPhase3: 0.5,
+
+        // Phase-break "evolution" sparkle burst (red); consumed by the base `playBreakEffects`
+        breakSparkles: {
+            count: 40,
+            speedMin: 1,
+            speedMax: 5,
+            sizeMin: 2,
+            sizeMax: 5,
+            lifeMin: 40,
+            lifeMax: 90,
+            colorFn: () => `hsl(${Math.random() * 20}, 100%, ${60 + Math.random() * 20}%)`,
+        },
     },
 
     assets: {
@@ -98,62 +104,77 @@ const level2 = {
         imgFeedbackEarly: new Image(),
     },
 
-    state: {
-        gameState: "playing",
-        score: 0,
-        trials: 0,
-        reactionTimes: [],
-        particles: [],
-        data: [],
-        player: { x: 0, y: 0, width: 100, height: 100, velocityY: 0, jumping: false, originalY: 0 },
-        playerFacing: "left", // 'left' | 'right' for sprite mirroring
-        stimulus: {
-            x: 0,
-            y: 0,
-            width: 50,
-            height: 50,
-            visible: false,
-            exiting: false,
-            exitType: "catch",
-            exitDuration: 200,
-            exitStartTime: 0,
-            exitInitialX: 0,
-            exitInitialY: 0,
-            initialY: 0,
-            exitInitialWidth: 0,
-            exitInitialHeight: 0,
-            side: null, // 'left' | 'right'
-            img: null,
-            region: null, // spawn region: 'left','right','top','bottom'
-            difficulty: null, // 'congruent' | 'neutral' | 'incongruent'
-        },
-        startTime: 0,
-        pendingStimulusTimeoutId: null,
-        currentTrialTimeoutId: null,
-        medianRT: 1000,
-        maxRT: 2000,
-        scoreText: "",
-        scoreTextVisible: false,
-        scoreTextTimeout: null,
-        scoreTextPoints: 0,
-        phaseIndex: 0,
-        inBreak: false,
-        breakState: "idle",
-        breakStartTime: 0,
-        showBreakText: false,
-        phaseRequiredScores: [0, 0, 0],
-        phaseFloorScore: 0,
-        canvas: null,
-        ctx: null,
-        endOverlayVisible: false,
-        endButtonRect: { x: 0, y: 0, w: 0, h: 0 },
-        showContinueButton: false,
-        continueLabel: "Continue",
-        flashUntil: 0, // timestamp until which the player sprite flashes (error/early feedback)
-        tintedSpriteCache: {},
-        feedbackBubbles: [],
-        lastTrialType: null,
-        lastFastFeedback: 0,
+    // Mutable runtime data. Replaced by a fresh object on every `start()`.
+    state: null,
+
+    /** Builds a clean runtime state, so a re-run of the level never inherits stale data. */
+    getInitialState: function () {
+        return {
+            gameState: "playing",
+            score: 0,
+            trials: 0,
+            reactionTimes: [],
+            particles: [],
+            data: [],
+            player: { x: 0, y: 0, width: 100, height: 100, velocityY: 0, jumping: false, originalY: 0 },
+            playerFacing: "left", // 'left' | 'right' for sprite mirroring
+            // Stimulus variant assigned to each side, drawn once per level start (counter-balancing)
+            leftStimulusImg: null,
+            rightStimulusImg: null,
+            stimulus: {
+                x: 0,
+                y: 0,
+                width: 50,
+                height: 50,
+                visible: false,
+                exiting: false,
+                exitType: "catch",
+                exitDuration: 200,
+                exitStartTime: 0,
+                exitInitialX: 0,
+                exitInitialY: 0,
+                initialY: 0,
+                exitInitialWidth: 0,
+                exitInitialHeight: 0,
+                side: null, // 'left' | 'right'
+                img: null,
+                region: null, // spawn region: 'left','right','top','bottom'
+                difficulty: null, // 'congruent' | 'neutral' | 'incongruent'
+            },
+            // Trial timing, all in the level clock (see core.js)
+            frameTime: 0, // timestamp of the frame being processed
+            clockOffset: 0, // performance clock -> level clock
+            startTime: 0, // stimulus onset, stamped from the frame that presented it
+            stimulusScheduledTime: 0, // when the current trial's ISI started
+            stimulusDueTime: null, // frame time at which the stimulus should appear
+            responseDeadline: null, // frame time at which the response window closes
+            onsetPending: false, // drawn, but not yet presented
+            medianRT: 1000,
+            maxRT: 2000,
+            scoreText: "",
+            scoreTextVisible: false,
+            scoreTextTimeout: null,
+            scoreTextPoints: 0,
+            phaseIndex: 0,
+            inBreak: false,
+            breakState: "idle",
+            breakStartTime: 0,
+            showBreakText: false,
+            phaseRequiredScores: [0, 0, 0],
+            phaseTargetsCache: null, // memoized getPhaseTargets() result (see core.js)
+            phaseFloorScore: 0,
+            canvas: null,
+            ctx: null,
+            endOverlayVisible: false,
+            endButtonRect: { x: 0, y: 0, w: 0, h: 0 },
+            showContinueButton: false,
+            continueLabel: "Continue",
+            flashUntil: 0, // timestamp until which the player sprite flashes (error/early feedback)
+            tintedSpriteCache: {},
+            feedbackBubbles: [],
+            lastTrialType: null,
+            lastFastFeedback: 0,
+        }
     },
 
     load: function (canvas, options) {
@@ -204,35 +225,9 @@ const level2 = {
             this.assets.soundLevelUp,
             this.assets.soundStart,
         ]
-        return Promise.all(
-            assetRefs.map(
-                (asset) =>
-                    new Promise((res, rej) => {
-                        if (asset instanceof HTMLImageElement) {
-                            asset.onload = res
-                            asset.onerror = rej
-                        } else if (asset instanceof HTMLAudioElement) {
-                            const done = () => {
-                                asset.oncanplaythrough = null
-                                asset.onerror = null
-                                res()
-                            }
-                            asset.oncanplaythrough = done
-                            asset.onerror = (e) => rej(e)
-                            // Some browsers may not fire canplaythrough for very short files; fallback check
-                            setTimeout(() => {
-                                if (!asset.readyState || asset.readyState < 3) return // HAVE_FUTURE_DATA
-                                done()
-                            }, 2000)
-                        } else res()
-                    }),
-            ),
-        ).then(() => {
+        return DoggoNogoCore.loadAssets(assetRefs, options && options.onProgress).then(() => {
             this.initializeDimensions(canvas)
-            this.state.player.x = canvas.width / 2 - this.state.player.width / 2
-            const centerY = canvas.height * (typeof this.params.playerY === "number" ? this.params.playerY : 0.5)
-            this.state.player.y = centerY - this.state.player.height / 2
-            this.state.player.originalY = this.state.player.y
+            this.placePlayer(canvas)
         })
     },
 
@@ -281,7 +276,9 @@ const level2 = {
         ctx.fillText("Press LEFT for left-pointing fishbone", leftXCenter, midY + stimH * 0.7)
         ctx.fillText("Press RIGHT for right-pointing fishbone", rightXCenter, midY + stimH * 0.7)
 
-        setTimeout(() => {
+        // Held on the level so `beginLevel` can cancel it (see Level 1).
+        this.instructionHintTimeout = setTimeout(() => {
+            this.instructionHintTimeout = null
             ctx.font = `bold ${scaleFontPx(34)}px Arial`
             ctx.fillStyle = "#FFEE58"
             ctx.fillText("Press LEFT or RIGHT to start", canvas.width / 2, canvas.height * 0.88)
@@ -289,37 +286,11 @@ const level2 = {
     },
 
     start: function (canvas, endGameCallback, options) {
-        this.state.canvas = canvas
-        this.state.ctx = canvas.getContext("2d")
-        this.endGameCallback = endGameCallback
-        const opts = options || {}
-        this.state.score = 0
-        this.state.reactionTimes = []
-        this.state.trials = 0
-        if (Array.isArray(this.state.data)) this.state.data.length = 0
-        else this.state.data = []
-        this.state.gameState = "playing"
-        this.state.phaseIndex = 0
-        this.state.inBreak = false
+        this.beginLevel(canvas, endGameCallback, options)
         // Simplified phase target logic: divide the theoretical total trials equally across 3 phases.
-        const perPhaseTrials = Math.ceil(this.params.trialsNumber / 3)
-        const targetPerPhase = perPhaseTrials * this.params.minScore
-        this.state.phaseRequiredScores = [targetPerPhase, targetPerPhase, targetPerPhase]
-        this.state.showContinueButton = !!opts.showContinueButton
-        this.state.continueLabel = typeof opts.continueLabel === "string" ? opts.continueLabel : "Continue"
-        this.state.endOverlayVisible = false
-        this.state.medianRT = 1000
-        this.state.maxRT = 2000
-        this.state.phaseFloorScore = 0
-        if (this.state.pendingStimulusTimeoutId) clearTimeout(this.state.pendingStimulusTimeoutId)
-        if (this.state.currentTrialTimeoutId) clearTimeout(this.state.currentTrialTimeoutId)
-        this.boundKeyDownHandler = this.handleKeyDown.bind(this)
-        document.addEventListener("keydown", this.boundKeyDownHandler)
-        this.boundClickHandler = this.handleClick.bind(this)
-        canvas.addEventListener("click", this.boundClickHandler)
-        if (typeof window !== "undefined") {
-            window.level2Data = this.state.data
-        }
+        const targetPerPhase = this.computePhaseTarget()
+        this.setPhaseTargets([targetPerPhase, targetPerPhase, targetPerPhase])
+        window.level2Data = this.state.data
         this.assets.imgPlayer = this.assets.imgPlayer1
         // Decide which stimulus variant goes on which side ONCE per level start (counter-balancing)
         if (Math.random() < 0.5) {
@@ -329,12 +300,7 @@ const level2 = {
             this.state.leftStimulusImg = this.assets.imgStimulus2
             this.state.rightStimulusImg = this.assets.imgStimulus1
         }
-        try {
-            this.assets.soundBackground.loop = true
-            if (this.assets.soundBackground.paused) this.assets.soundBackground.play()
-        } catch (e) {
-            console.debug("Background music failed to start", e)
-        }
+        DoggoNogoCore.startBackgroundMusic(this.assets.soundBackground)
         this.startNewTrial()
     },
 
@@ -400,87 +366,68 @@ const level2 = {
         }
     },
 
-    startNewTrial: function () {
-        const delay =
-            typeof DoggoNogoCore !== "undefined" && DoggoNogoCore.samplePseudoExponentialISI
-                ? DoggoNogoCore.samplePseudoExponentialISI(this.params.minISI, this.params.maxISI, this.params.meanISIDecay)
-                : Math.min(this.params.maxISI, this.params.minISI - (this.params.meanISIDecay || 800) * Math.log(1 - Math.random()))
-        if (this.state.pendingStimulusTimeoutId) clearTimeout(this.state.pendingStimulusTimeoutId)
-        this.state.pendingStimulusTimeoutId = setTimeout(() => {
-            this.state.pendingStimulusTimeoutId = null
-            const stim = this.state.stimulus
-            let region, side, difficulty
-            if (this.state.phaseIndex === 0) {
-                // Phase 1: only congruent horizontal trials
+    /** Hook (called by the base schedule): draw a region, resolve congruency, position the bone. */
+    placeStimulus: function () {
+        const stim = this.state.stimulus
+        let region, side, difficulty
+        if (this.state.phaseIndex === 0) {
+            // Phase 1: only congruent horizontal trials
+            region = Math.random() < 0.5 ? "left" : "right"
+            side = region
+            difficulty = "congruent"
+        } else if (this.state.phaseIndex === 1) {
+            // Phase 2: mixture of congruent horizontal and neutral vertical trials
+            const pNeutral = Math.min(1, Math.max(0, this.params.neutralProportionPhase2 || 0))
+            const isNeutral = Math.random() < pNeutral
+            if (isNeutral) {
+                region = Math.random() < 0.5 ? "top" : "bottom"
+                side = Math.random() < 0.5 ? "left" : "right" // orientation independent of vertical location
+                difficulty = "neutral"
+            } else {
                 region = Math.random() < 0.5 ? "left" : "right"
                 side = region
                 difficulty = "congruent"
-            } else if (this.state.phaseIndex === 1) {
-                // Phase 2: mixture of congruent horizontal and neutral vertical trials
-                const pNeutral = Math.min(1, Math.max(0, this.params.neutralProportionPhase2 || 0))
-                const isNeutral = Math.random() < pNeutral
-                if (isNeutral) {
-                    region = Math.random() < 0.5 ? "top" : "bottom"
-                    side = Math.random() < 0.5 ? "left" : "right" // orientation independent of vertical location
-                    difficulty = "neutral"
-                } else {
-                    region = Math.random() < 0.5 ? "left" : "right"
-                    side = region
-                    difficulty = "congruent"
-                }
+            }
+        } else {
+            // Phase 3: mixture of congruent & incongruent horizontal (no neutral)
+            const pIncong = Math.min(1, Math.max(0, this.params.incongruentProportionPhase3 || 0))
+            region = Math.random() < 0.5 ? "left" : "right"
+            const isIncong = Math.random() < pIncong
+            if (isIncong) {
+                side = region === "left" ? "right" : "left" // opposite = incongruent
+                difficulty = "incongruent"
             } else {
-                // Phase 3: mixture of congruent & incongruent horizontal (no neutral)
-                const pIncong = Math.min(1, Math.max(0, this.params.incongruentProportionPhase3 || 0))
-                region = Math.random() < 0.5 ? "left" : "right"
-                const isIncong = Math.random() < pIncong
-                if (isIncong) {
-                    side = region === "left" ? "right" : "left" // opposite = incongruent
-                    difficulty = "incongruent"
-                } else {
-                    side = region
-                    difficulty = "congruent"
-                }
+                side = region
+                difficulty = "congruent"
             }
-            stim.region = region
-            stim.side = side
-            stim.difficulty = difficulty
-            stim.img = side === "left" ? this.state.leftStimulusImg : this.state.rightStimulusImg
-            // Compute position based on region
-            let centerX = this.state.canvas.width * 0.5
-            let centerY = this.state.canvas.height * 0.5
-            if (region === "left") centerX = this.state.canvas.width * 0.25
-            else if (region === "right") centerX = this.state.canvas.width * 0.75
-            else if (region === "top") centerY = this.state.canvas.height * (this.params.stimulusLocationTopY || 0.25)
-            else if (region === "bottom") centerY = this.state.canvas.height * (this.params.stimulusLocationBottomY || 0.75)
-            stim.y = centerY - stim.height / 2
-            stim.initialY = stim.y
-            stim.x = centerX - stim.width / 2
-            this.state.stimulus.visible = true
-            this.state.stimulus.exiting = false
-            this.state.startTime = this.now()
-            if (typeof DoggoNogoEngine !== "undefined" && typeof DoggoNogoEngine.flashMarker === "function") {
-                DoggoNogoEngine.flashMarker()
-            }
-            this.state.trials++
-            this.state.maxRT = 2 * this.state.medianRT
-            if (this.state.currentTrialTimeoutId) clearTimeout(this.state.currentTrialTimeoutId)
-            this.state.currentTrialTimeoutId = setTimeout(() => {
-                this.state.currentTrialTimeoutId = null
-                if (this.state.gameState !== "playing") return
-                if (this.state.stimulus.visible && typeof DoggoNogoCore !== "undefined") {
-                    DoggoNogoCore.startStimulusExit(this.state, () => this.now(), "timeout")
-                }
-                this.finishTrial({
-                    type: TrialTypes.TIMEOUT,
-                    points: 0,
-                    includeInMedian: false,
-                    stimulusX: this.state.stimulus.x,
-                    stimulusY: this.state.stimulus.y,
-                    stimulusRegion: this.state.stimulus.region,
-                    timestamp: new Date().toISOString(),
-                })
-            }, this.state.maxRT)
-        }, delay)
+        }
+        stim.region = region
+        stim.side = side
+        stim.difficulty = difficulty
+        stim.img = side === "left" ? this.state.leftStimulusImg : this.state.rightStimulusImg
+        // Compute position based on region
+        let centerX = this.state.canvas.width * 0.5
+        let centerY = this.state.canvas.height * 0.5
+        if (region === "left") centerX = this.state.canvas.width * 0.25
+        else if (region === "right") centerX = this.state.canvas.width * 0.75
+        else if (region === "top") centerY = this.state.canvas.height * (this.params.stimulusLocationTopY || 0.25)
+        else if (region === "bottom") centerY = this.state.canvas.height * (this.params.stimulusLocationBottomY || 0.75)
+        stim.y = centerY - stim.height / 2
+        stim.initialY = stim.y
+        stim.x = centerX - stim.width / 2
+    },
+
+    /** Hook (called by the base schedule): the response window closed with no press. */
+    onResponseTimeout: function () {
+        this.finishTrial({
+            type: TrialTypes.TIMEOUT,
+            points: 0,
+            includeInMedian: false,
+            stimulusX: this.state.stimulus.x,
+            stimulusY: this.state.stimulus.y,
+            stimulusRegion: this.state.stimulus.region,
+            timestamp: new Date().toISOString(),
+        })
     },
 
     finishTrial: function (outcome) {
@@ -504,6 +451,7 @@ const level2 = {
                 RT: rtVal === null ? "NA" : rtVal,
                 Error: outcome.type === "early" || outcome.type === "timeout" || outcome.type === "error" ? 1 : 0,
                 Threshold: typeof outcome.thresholdUsed === "number" ? outcome.thresholdUsed : this.getEffectiveThreshold(),
+                ISI: this.getRealizedISI() ?? "NA",
                 Score: this.state.score,
                 ScoreChange: outcome.points,
                 StimulusSide: this.state.stimulus.side,
@@ -560,50 +508,11 @@ const level2 = {
         return perPhaseTrials * this.params.minScore
     },
 
-    getPhaseTargets: function () {
-        return this.state.phaseRequiredScores.slice()
-    },
-
-    ensurePhaseTarget: function () {
-        return this.state.phaseRequiredScores[this.state.phaseIndex]
-    },
-
-    /** Phase break: swap to next sprite, red sparkles, evolve sound, then show prompt. */
-    updateBreak: function () {
-        const elapsed = this.now() - this.state.breakStartTime
-        if (this.state.breakState === "started" && elapsed > 1000) {
-            if (this.state.phaseIndex === 1) this.assets.imgPlayer = this.assets.imgPlayer2
-            else if (this.state.phaseIndex === 2) this.assets.imgPlayer = this.assets.imgPlayer3
-            const cx = this.state.player.x + this.state.player.width / 2
-            const cy = this.state.player.y + this.state.player.height / 2
-            this.createRedSparkles(cx, cy, 40)
-            DoggoNogoCore.safePlay(this.assets.soundEvolve)
-            this.state.breakState = "effects"
-        }
-        if (this.state.breakState === "effects" && elapsed > 2000) {
-            this.state.showBreakText = true
-            this.state.breakState = "ready"
-        }
-    },
-
-    createRedSparkles: function (x, y, count) {
-        DoggoNogoCore.createParticles(this, x, y, count, {
-            speedMin: 1,
-            speedMax: 5,
-            sizeMin: 2,
-            sizeMax: 5,
-            lifeMin: 40,
-            lifeMax: 90,
-            colorFn: () => `hsl(${Math.random() * 20}, 100%, ${60 + Math.random() * 20}%)`,
-        })
-    },
-
     handleKeyDown: function (e) {
         if (this.state.gameState !== "playing") return
         // Dev/Test shortcut: 's' to skip level immediately
         if (e.key === "s" || e.key === "S") {
-            if (this.state.pendingStimulusTimeoutId) clearTimeout(this.state.pendingStimulusTimeoutId)
-            if (this.state.currentTrialTimeoutId) clearTimeout(this.state.currentTrialTimeoutId)
+            DoggoNogoCore.clearTrialSchedule(this.state)
             this.endLevel()
             return
         }
@@ -614,9 +523,10 @@ const level2 = {
         }
         if (!this.isResponseKey(e.key)) return
 
-        // Early press before stimulus
-        if (!this.state.stimulus.visible && !this.state.stimulus.exiting) {
-            if (typeof DoggoNogoCore !== "undefined") DoggoNogoCore.clearTrialTimers(this.state)
+        // Early press: before the stimulus, or before the frame carrying it reached the screen
+        if ((!this.state.stimulus.visible || this.isAwaitingStimulusOnset()) && !this.state.stimulus.exiting) {
+            this.cancelPendingStimulus()
+            DoggoNogoCore.clearTrialSchedule(this.state)
             const nowISO = new Date().toISOString()
             const thresholdUsed = this.getEffectiveThreshold()
             DoggoNogoCore.safePlay(this.assets.soundError)
@@ -627,15 +537,15 @@ const level2 = {
                 timestamp: nowISO,
                 thresholdUsed,
             })
-            this.state.flashUntil = this.now() + this.params.flashDuration
+            this.state.flashUntil = this.state.frameTime + this.params.flashDuration
             return
         }
 
         // Valid press while stimulus is visible
         if (this.state.stimulus.visible && !this.state.stimulus.exiting) {
-            const reactionTime = this.now() - this.state.startTime
-            if (this.state.currentTrialTimeoutId) clearTimeout(this.state.currentTrialTimeoutId)
-            if (typeof DoggoNogoCore !== "undefined") DoggoNogoCore.startStimulusExit(this.state, () => this.now(), "catch")
+            const reactionTime = this.eventTime(e) - this.state.startTime
+            this.state.responseDeadline = null
+            DoggoNogoCore.startStimulusExit(this.state, () => this.state.frameTime, "catch")
             const threshold = this.getEffectiveThreshold()
             const trialMaxRT = this.state.maxRT || 2 * this.state.medianRT
             const correct =
@@ -697,8 +607,4 @@ const level2 = {
 
 // Inherit shared gameplay mechanics from the base level.
 Object.setPrototypeOf(level2, DoggoNogoBaseLevel)
-
-// Make accessible globally in browser context
-if (typeof window !== "undefined") {
-    window.level2 = level2
-}
+level2.state = level2.getInitialState()
