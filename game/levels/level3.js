@@ -1,18 +1,38 @@
 /**
- * @file Level 3 — Barebones two-choice RT task (placeholder).
+ * @file Level 3 — Length discrimination (perceptual two-alternative forced choice).
  *
- * Minimal skeleton for a future task: a plain grey background, the Level 1 Doggo sprite centred on
- * the canvas, and the Level 1 bone appearing either left or right of it. The player answers with
- * the matching arrow key (ArrowLeft / ArrowRight).
+ * Two bones appear either side of Doggo and the player names the longer one with the matching
+ * arrow key (ArrowLeft / ArrowRight). Unlike Levels 1 and 2, the answer is not given by *where* the
+ * stimulus is but by a perceptual comparison, so accuracy is the primary measure and RT is
+ * secondary.
+ *
+ * The bones are drawn procedurally (see game/stimuli.js) rather than blitted from a PNG, because
+ * length is the manipulated variable: a scaled sprite would deform its end lobes and a stretched
+ * middle slice would smear the artwork's texture, and either one hands the player a cue that is not
+ * length. Drawing in code keeps thickness, lobe size and outline weight fixed while length varies.
+ *
+ * Three controls guard the measurement, all applied per trial in `placeStimulus`:
+ *
+ *  - Roving standard: the base length is re-drawn every trial, so "how long a bone should be"
+ *    cannot be learned and carried across trials — only the within-trial comparison survives.
+ *  - Independent centre jitter: without it the two bones' near ends sit at almost the same place,
+ *    and endpoint alignment is judged far more precisely than length, so the player would be doing
+ *    a vernier task instead of this one.
+ *  - One shared orientation per trial (plus a small independent jitter): rotation is what stops
+ *    screen-axis strategies, but orientation *differences* within a pair would import the
+ *    horizontal-vertical illusion, which is about as large as the length differences being tested.
+ *
+ * Difficulty adapts by a 2-down/1-up staircase on the length difference (see `_updateDifficulty`),
+ * which converges near 71% correct. Set `params.deltaStepFactor` to 1 to pin the difference instead.
  *
  * Everything else (physics, phase progression, progress bar, feedback bubbles, data plumbing) comes
- * from `DoggoNogoBaseLevel` (game/core.js). Assets are borrowed from Level 1 — no `assets/level3/`
- * folder exists yet.
+ * from `DoggoNogoBaseLevel` (game/core.js). Sprites and sounds are borrowed from Level 1 — no
+ * `assets/level3/` folder exists yet, and the stimulus needs no asset at all.
  *
  * Scoring (same shape as Level 2):
  *   Fast  (<= threshold)               : + minScore..maxScore (scaled by RT)
  *   Slow  (> threshold, before timeout): + minScore/2
- *   Error (wrong side)                 : - minScore/2
+ *   Error (named the shorter bone)     : - minScore/2
  *   Early (before stimulus visible)    : - minScore
  *   Timeout (no response)              : 0
  *   Only correct fast/slow trials update the adaptive median RT.
@@ -23,6 +43,14 @@
 
 import { DoggoNogoBaseLevel } from "../core.js"
 import { DoggoNogoCore, DoggoNogoTrialTypes as TrialTypes } from "../game.js"
+import { DoggoNogoStimuli } from "../stimuli.js"
+
+/**
+ * Lengths are logged as fractions of canvas height, not pixels: the same fraction means the same
+ * stimulus on any display, and `CanvasHeight` in the same row recovers the pixel size.
+ */
+const round4 = (v) => (typeof v === "number" ? Math.round(v * 1e4) / 1e4 : "NA")
+const angleDeg = (item) => (item ? Math.round(((item.angle * 180) / Math.PI) * 10) / 10 : "NA")
 
 export const level3 = {
     startKeys: ["ArrowLeft", "ArrowRight"],
@@ -45,8 +73,27 @@ export const level3 = {
         stimulusFallDistance: 0, // static stimulus (no falling animation in this level)
         playerHeight: 0.2, // % of canvas height
         playerY: 0.5, // vertical centre of the canvas
-        stimulusHeight: 0.1, // % of canvas height
+        stimulusHeight: 0.1, // % of canvas height; only sizes the base class's bookkeeping box
         stimulusOffsetX: 0.25, // horizontal distance from centre, as a fraction of canvas width
+
+        // --- Stimulus geometry. Lengths and thicknesses are fractions of canvas *height* so the
+        // pair scales as one shape; only the left/right offsets are keyed to canvas width.
+        stimulusLength: 0.34, // base tip-to-tip length of a bone
+        stimulusThickness: 0.035, // shaft width (the lobed ends are ~2x this)
+        stimulusLengthJitter: 0.15, // roving standard: base length varies +-15% per trial
+        stimulusJitterX: 0.06, // centre jitter (fraction of canvas width), breaks endpoint alignment
+        stimulusJitterY: 0.08, // centre jitter (fraction of canvas height)
+        stimulusAngleJitter: 8, // degrees, independent per bone around the shared trial orientation
+        boneFill: "#f0dfb4",
+        boneOutline: "#20191a",
+        boneOutlineWidth: 0.006, // fraction of canvas height
+
+        // --- Difficulty: 2-down/1-up staircase on the proportional length difference.
+        deltaStart: 0.25, // the longer bone starts 25% longer than the shorter one
+        deltaMin: 0.02,
+        deltaMax: 0.5,
+        deltaStepFactor: 1.25, // divide after two correct, multiply after an error; 1 = fixed
+
         flashDuration: 150, // ms duration of the red flash for errors/early presses
         flashTintColor: "255,0,0", // base RGB; alpha animated
         feedbackBubbleHeight: 0.2, // % of canvas height
@@ -65,13 +112,12 @@ export const level3 = {
         },
     },
 
-    // All borrowed from Level 1 for now.
+    // All borrowed from Level 1 for now. There is no stimulus image: the bones are drawn in code.
     assets: {
         imgPlayer: new Image(), // current sprite used for drawing
         imgPlayer1: new Image(),
         imgPlayer2: new Image(),
         imgPlayer3: new Image(),
-        imgStimulus: new Image(),
         imgFeedbackSlow: new Image(),
         imgFeedbackLate: new Image(),
         imgFeedbackEarly: new Image(),
@@ -125,8 +171,19 @@ export const level3 = {
                 initialY: 0,
                 exitInitialWidth: 0,
                 exitInitialHeight: 0,
-                side: null, // "left" | "right"
+
+                // The pair itself. Geometry is stored as canvas fractions and converted to pixels
+                // at draw time, so a resize mid-trial rescales the bones instead of stranding them.
+                items: [], // [{ side, cxFrac, cyFrac, lengthFrac, angle }]
+                baseLengthFrac: 0, // the shorter bone's length this trial
+                delta: 0, // proportional difference actually presented
+                trialAngle: 0, // orientation shared by both bones (radians)
+                longerSide: null, // "left" | "right" — the correct answer
             },
+
+            // Staircase state
+            delta: 0,
+            consecutiveCorrect: 0,
 
             // Trial timing, all in the level clock (see core.js)
             frameTime: 0,
@@ -173,7 +230,6 @@ export const level3 = {
         this.assets.imgPlayer1.src = base + "level1/player_1.png"
         this.assets.imgPlayer2.src = base + "level1/player_2.png"
         this.assets.imgPlayer3.src = base + "level1/player_3.png"
-        this.assets.imgStimulus.src = base + "level1/stimulus.png"
         this.assets.imgFeedbackSlow.src = base + "level1/feedback_slow1.png"
         this.assets.imgFeedbackLate.src = base + "level1/feedback_late1.png"
         this.assets.imgFeedbackEarly.src = base + "level1/feedback_early1.png"
@@ -194,7 +250,6 @@ export const level3 = {
             this.assets.imgPlayer1,
             this.assets.imgPlayer2,
             this.assets.imgPlayer3,
-            this.assets.imgStimulus,
             this.assets.imgFeedbackSlow,
             this.assets.imgFeedbackLate,
             this.assets.imgFeedbackEarly,
@@ -236,23 +291,34 @@ export const level3 = {
         ctx.fillText("Level 3", canvas.width / 2, canvas.height * 0.2)
 
         ctx.font = `${scaleFontPx(30)}px Arial`
-        const lines = ["A bone appears on Doggo's left or right.", "Press the arrow key matching the side it appears on."]
+        const lines = ["Two bones appear either side of Doggo.", "Press the arrow key pointing at the LONGER one."]
         const lineHeight = scaleFontPx(40)
         const startY = canvas.height * 0.35
         lines.forEach((line, i) => ctx.fillText(line, canvas.width / 2, startY + i * lineHeight))
 
-        const stim = this.assets.imgStimulus
-        if (stim && stim.complete) {
-            const h = canvas.height * 0.12
-            const w = h * (stim.naturalWidth / stim.naturalHeight)
-            const midY = canvas.height * 0.6
-            ctx.drawImage(stim, canvas.width * 0.3 - w / 2, midY - h / 2, w, h)
-            ctx.drawImage(stim, canvas.width * 0.7 - w / 2, midY - h / 2, w, h)
-            ctx.font = `${scaleFontPx(26)}px Arial`
-            ctx.fillStyle = "#FFD54F"
-            ctx.fillText("LEFT", canvas.width * 0.3, midY + h)
-            ctx.fillText("RIGHT", canvas.width * 0.7, midY + h)
-        }
+        // Example pair, drawn with the same code path as the task itself so the demonstration
+        // cannot drift away from what the player is about to see. The gap is exaggerated here.
+        const midY = canvas.height * 0.62
+        const demo = [
+            { x: 0.3, len: 0.2, angle: -0.25 },
+            { x: 0.7, len: 0.3, angle: 0.18 },
+        ]
+        demo.forEach((d) => {
+            DoggoNogoStimuli.drawBone(ctx, {
+                centerX: canvas.width * d.x,
+                centerY: midY,
+                length: canvas.height * d.len,
+                thickness: canvas.height * this.params.stimulusThickness,
+                angle: d.angle,
+                fill: this.params.boneFill,
+                outline: this.params.boneOutline,
+                outlineWidth: canvas.height * this.params.boneOutlineWidth,
+            })
+        })
+        ctx.font = `${scaleFontPx(26)}px Arial`
+        ctx.fillStyle = "#FFD54F"
+        ctx.fillText("LEFT", canvas.width * 0.3, midY + canvas.height * 0.14)
+        ctx.fillText("RIGHT", canvas.width * 0.7, midY + canvas.height * 0.14)
 
         // Held on the level so `beginLevel` can cancel it (see Level 1).
         this.instructionHintTimeout = setTimeout(() => {
@@ -270,6 +336,8 @@ export const level3 = {
         this.setPhaseTargets([targetPerPhase, targetPerPhase, targetPerPhase])
         window.level3Data = this.state.data
         this.assets.imgPlayer = this.assets.imgPlayer1
+        this.state.delta = this.params.deltaStart
+        this.state.consecutiveCorrect = 0
         this.startNewTrial()
     },
 
@@ -279,31 +347,75 @@ export const level3 = {
         return perPhaseTrials * this.params.minScore
     },
 
-    /** Hook (called by the base schedule): place the bone left or right of the player. */
+    /**
+     * The base class derives its bookkeeping box from a stimulus image's aspect ratio, and this
+     * level has no stimulus image. A 1:1 stand-in keeps that box square and finite; nothing is
+     * drawn from it, because `drawStimulus` works off `stimulus.items` instead.
+     */
+    getStimulusAspectImage: function () {
+        return { naturalWidth: 1, naturalHeight: 1 }
+    },
+
+    /**
+     * Hook (called by the base schedule): compose the pair for the trial that is starting.
+     *
+     * Everything random is drawn here, once, and stored as canvas fractions: the trial is fully
+     * described by `stimulus.items` plus the summary fields the data log reads.
+     */
     placeStimulus: function () {
         const stim = this.state.stimulus
         const canvas = this.state.canvas
-        stim.side = Math.random() < 0.5 ? "left" : "right"
-        const offset = canvas.width * this.params.stimulusOffsetX
-        const centerX = canvas.width / 2 + (stim.side === "left" ? -offset : offset)
-        stim.x = centerX - stim.width / 2
+        const p = this.params
+        const jitter = (span) => (Math.random() * 2 - 1) * span
+
+        const baseLength = p.stimulusLength * (1 + jitter(p.stimulusLengthJitter))
+        const delta = this.state.delta
+        const trialAngle = Math.random() * Math.PI
+        const angleJitter = (p.stimulusAngleJitter * Math.PI) / 180
+        stim.longerSide = Math.random() < 0.5 ? "left" : "right"
+
+        stim.items = ["left", "right"].map((side) => ({
+            side,
+            cxFrac: 0.5 + (side === "left" ? -p.stimulusOffsetX : p.stimulusOffsetX) + jitter(p.stimulusJitterX),
+            cyFrac: 0.5 + jitter(p.stimulusJitterY),
+            lengthFrac: baseLength * (side === stim.longerSide ? 1 + delta : 1),
+            angle: trialAngle + jitter(angleJitter),
+        }))
+        stim.baseLengthFrac = baseLength
+        stim.delta = delta
+        stim.trialAngle = trialAngle
+
+        // The base class tracks one nominal box for exit/resize bookkeeping; centre it on the pair.
+        stim.x = canvas.width / 2 - stim.width / 2
         stim.y = canvas.height / 2 - stim.height / 2
         stim.initialY = stim.y
     },
 
-    /** Draws the bone; fades it out during the exit animation. */
+    /** Draws both bones; fades the pair out together during the exit animation. */
     drawStimulus: function () {
         const stim = this.state.stimulus
         if (!stim.visible && !stim.exiting) return
         const ctx = this.state.ctx
+        const canvas = this.state.canvas
         ctx.save()
         if (stim.exiting) {
             const progress = Math.min((this.state.frameTime - stim.exitStartTime) / stim.exitDuration, 1)
             ctx.globalAlpha = 1 - progress
-            ctx.drawImage(this.assets.imgStimulus, stim.exitInitialX, stim.exitInitialY, stim.exitInitialWidth, stim.exitInitialHeight)
-        } else {
-            ctx.drawImage(this.assets.imgStimulus, stim.x, stim.y, stim.width, stim.height)
         }
+        // Fractions are converted here rather than at placement, so a resize mid-trial moves and
+        // rescales the pair instead of leaving it at the old canvas's pixel coordinates.
+        stim.items.forEach((item) => {
+            DoggoNogoStimuli.drawBone(ctx, {
+                centerX: canvas.width * item.cxFrac,
+                centerY: canvas.height * item.cyFrac,
+                length: canvas.height * item.lengthFrac,
+                thickness: canvas.height * this.params.stimulusThickness,
+                angle: item.angle,
+                fill: this.params.boneFill,
+                outline: this.params.boneOutline,
+                outlineWidth: canvas.height * this.params.boneOutlineWidth,
+            })
+        })
         ctx.restore()
     },
 
@@ -361,8 +473,8 @@ export const level3 = {
             const threshold = this.getEffectiveThreshold()
             const trialMaxRT = this.state.maxRT || 2 * this.state.medianRT
             const correct =
-                (e.key === "ArrowLeft" && this.state.stimulus.side === "left") ||
-                (e.key === "ArrowRight" && this.state.stimulus.side === "right")
+                (e.key === "ArrowLeft" && this.state.stimulus.longerSide === "left") ||
+                (e.key === "ArrowRight" && this.state.stimulus.longerSide === "right")
 
             if (!correct) {
                 DoggoNogoCore.safePlay(this.assets.soundError)
@@ -422,9 +534,32 @@ export const level3 = {
             this.state.reactionTimes.push(outcome.rt)
             this.state.medianRT = this.computeMedian(this.state.reactionTimes)
         }
+        this._updateDifficulty(outcome)
         this._logTrialData(outcome)
         this.state.lastTrialType = outcome.type
         this._checkForPhaseOrLevelEnd()
+    },
+
+    /**
+     * 2-down/1-up staircase on the length difference: two correct answers in a row make the next
+     * pair more similar, one wrong answer makes it more different. That rule converges on ~71%
+     * correct, which keeps the task at the edge of what the player can actually see.
+     *
+     * Only answered trials move it. A timeout or an early press says nothing about whether the
+     * difference was visible, so letting them push the staircase would inflate the threshold.
+     */
+    _updateDifficulty: function (outcome) {
+        if (typeof outcome.correct !== "boolean") return
+        const p = this.params
+        if (outcome.correct) {
+            this.state.consecutiveCorrect += 1
+            if (this.state.consecutiveCorrect < 2) return
+            this.state.consecutiveCorrect = 0
+            this.state.delta = Math.max(p.deltaMin, this.state.delta / p.deltaStepFactor)
+        } else {
+            this.state.consecutiveCorrect = 0
+            this.state.delta = Math.min(p.deltaMax, this.state.delta * p.deltaStepFactor)
+        }
     },
 
     /** Shows feedback bubbles based on the trial outcome. */
@@ -455,6 +590,9 @@ export const level3 = {
     _logTrialData: function (outcome) {
         if (!outcome.timestamp) return
         const isError = outcome.type === TrialTypes.EARLY || outcome.type === TrialTypes.TIMEOUT || outcome.type === TrialTypes.ERROR
+        // An early press beats the pair onto the screen, so no stimulus was ever seen: reporting
+        // the geometry that was queued (or the previous trial's) would invent a presentation.
+        const stim = outcome.type === TrialTypes.EARLY ? null : this.state.stimulus
         this.state.data.push({
             Level: "level 3",
             Phase: this.state.phaseIndex + 1,
@@ -467,7 +605,12 @@ export const level3 = {
             ISI: this.getRealizedISI() ?? "NA",
             Score: this.state.score,
             ScoreChange: outcome.points,
-            StimulusSide: this.state.stimulus.side || "NA",
+            LongerSide: (stim && stim.longerSide) || "NA",
+            Delta: stim ? round4(stim.delta) : "NA",
+            LengthShort: stim ? round4(stim.baseLengthFrac) : "NA",
+            LengthLong: stim ? round4(stim.baseLengthFrac * (1 + stim.delta)) : "NA",
+            AngleLeft: stim ? angleDeg(stim.items[0]) : "NA",
+            AngleRight: stim ? angleDeg(stim.items[1]) : "NA",
             ResponseKey: outcome.responseKey || "NA",
             Correct: typeof outcome.correct === "boolean" ? (outcome.correct ? 1 : 0) : "NA",
             CanvasWidth: this.state.canvas ? this.state.canvas.width : null,
