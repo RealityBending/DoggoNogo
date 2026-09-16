@@ -29,7 +29,8 @@
  */
 
 import { DoggoNogoBaseLevel } from "../core.js"
-import { DoggoNogoCore, DoggoNogoTrialTypes as TrialTypes } from "../game.js"
+import { DoggoNogoCore, DoggoNogoUI, DoggoNogoTrialTypes as TrialTypes } from "../game.js"
+import { DoggoNogoStimuli } from "../stimuli.js"
 
 export const level2 = {
     startKeys: ["ArrowLeft", "ArrowRight"],
@@ -49,9 +50,31 @@ export const level2 = {
         maxJumpStrength: -8,
         minJumpStrength: -1,
         stimulusFallDistance: 0.05,
-        playerHeight: 0.4,
-        playerY: 0.65,
-        stimulusHeight: 0.1,
+        playerHeight: 0.36, // % of canvas height
+        playerY: 0.63, // vertical centre of the sprite box; paws land at ~0.81, on the alley floor
+        // Contact shadow: the sheet leaves ~2.5% of the box empty under the paws, so the shadow is
+        // raised to sit under them rather than a little below.
+        jumpShadow: { yOffset: -0.04 },
+
+        // --- Stimulus geometry. The fishbone is traced in code and fills its box exactly. The old
+        // sprite's ink filled only 62% of its box height, so the same `stimulusHeight` meant a
+        // smaller physical stimulus here than in Level 1; these numbers reproduce the sprite's
+        // apparent size while making the box and the shape the same rectangle.
+        stimulusHeight: 0.065, // full fishbone height (set by the tail lobes), fraction of canvas height
+        stimulusAspect: 2.1, // nose-to-tail length / full height
+        fishFill: "#f6fbff", // used for both directions when stimulusColorMode is "single"
+        // Matched-luminance pair for "orthogonal" mode (relative luminance ~0.48 each), so colour
+        // can vary without changing how detectable the stimulus is. Note the outline below is
+        // shared by both members, so a pair should be chosen to read against it.
+        fishFillPair: ["#4cc9f0", "#f0a24c"],
+        stimulusColorMode: "single", // "single" | "orthogonal"; see the file header
+        // Outermost first, widths as fractions of the full fishbone height. A near-white bone on a
+        // blue contour: the pale fill is the bright mass that makes the stimulus pop against the
+        // dark alley, and the blue holds the silhouette together and keeps the ribs from merging
+        // into one another at the on-screen size.
+        fishOutlines: [{ color: "#1d6fd0", width: 0.05 }],
+        fishEyeColor: "#1d6fd0", // must read against the pale fill, so it takes the outline's blue
+
         flashDuration: 150, // ms duration of red flash for errors/early presses
         flashTintColor: "255,0,0", // base RGB; alpha animated
         feedbackBubbleHeight: 0.2, // % of canvas height for feedback bubbles
@@ -80,9 +103,6 @@ export const level2 = {
         imgPlayer1: new Image(),
         imgPlayer2: new Image(),
         imgPlayer3: new Image(),
-        // Generic stimulus variants (fishbones facing opposite directions)
-        imgStimulus1: new Image(),
-        imgStimulus2: new Image(),
         imgBackground: new Image(),
         soundEvolve: new Audio(),
         soundLevelUp: new Audio(),
@@ -118,9 +138,9 @@ export const level2 = {
             data: [],
             player: { x: 0, y: 0, width: 100, height: 100, velocityY: 0, jumping: false, originalY: 0 },
             playerFacing: "left", // 'left' | 'right' for sprite mirroring
-            // Stimulus variant assigned to each side, drawn once per level start (counter-balancing)
-            leftStimulusImg: null,
-            rightStimulusImg: null,
+            // Fill colours available this session. One entry in "single" mode; two in "orthogonal",
+            // in a per-session random order so any residual colour preference is counter-balanced.
+            fillPalette: [],
             stimulus: {
                 x: 0,
                 y: 0,
@@ -137,9 +157,9 @@ export const level2 = {
                 exitInitialWidth: 0,
                 exitInitialHeight: 0,
                 side: null, // 'left' | 'right'
-                img: null,
                 region: null, // spawn region: 'left','right','top','bottom'
                 difficulty: null, // 'congruent' | 'neutral' | 'incongruent'
+                fill: null, // the fill actually drawn this trial; logged as StimulusColor
             },
             // Trial timing, all in the level clock (see core.js)
             frameTime: 0, // timestamp of the frame being processed
@@ -148,6 +168,7 @@ export const level2 = {
             stimulusScheduledTime: 0, // when the current trial's ISI started
             stimulusDueTime: null, // frame time at which the stimulus should appear
             responseDeadline: null, // frame time at which the response window closes
+            responseWindowClosedAt: null, // frame time of the last timeout (see isBelatedResponse)
             onsetPending: false, // drawn, but not yet presented
             medianRT: 1000,
             maxRT: 2000,
@@ -179,12 +200,10 @@ export const level2 = {
 
     load: function (canvas, options) {
         const base = (options && options.assetBasePath) || ""
-        this.assets.imgPlayer1.src = base + "level2/player_1.png"
-        this.assets.imgPlayer2.src = base + "level2/player_2.png"
-        this.assets.imgPlayer3.src = base + "level2/player_3.png"
-        this.assets.imgStimulus1.src = base + "level2/stimulus_1.png"
-        this.assets.imgStimulus2.src = base + "level2/stimulus_2.png"
-        this.assets.imgBackground.src = base + "level2/background.png"
+        this.assets.imgPlayer1.src = base + "level2/player_1.webp"
+        this.assets.imgPlayer2.src = base + "level2/player_2.webp"
+        this.assets.imgPlayer3.src = base + "level2/player_3.webp"
+        this.assets.imgBackground.src = base + "level2/background.webp"
         this.assets.soundEvolve.src = base + "level2/sound_evolve.mp3"
         this.assets.soundLevelUp.src = base + "sound_levelup.mp3" // shared root-level sound
         this.assets.soundError.src = base + "level2/sound_error.mp3"
@@ -205,8 +224,6 @@ export const level2 = {
             this.assets.imgPlayer1,
             this.assets.imgPlayer2,
             this.assets.imgPlayer3,
-            this.assets.imgStimulus1,
-            this.assets.imgStimulus2,
             this.assets.imgBackground,
             this.assets.imgCover,
             this.assets.imgCoverText,
@@ -231,58 +248,56 @@ export const level2 = {
         })
     },
 
+    /**
+     * Level-specific instructions screen (animated; the loop is cancelled by `beginLevel`).
+     */
     showInstructionScreen: function (canvas) {
-        const scaleFontPx = (b) => Math.round(b * ((canvas.width / this.REF_W + canvas.height / this.REF_H) / 2))
-        const ctx = canvas.getContext("2d")
-        const bg = this.assets.imgBackground
-        if (bg && bg.complete) ctx.drawImage(bg, 0, 0, canvas.width, canvas.height)
-        else ctx.clearRect(0, 0, canvas.width, canvas.height)
-        ctx.fillStyle = "rgba(0,0,0,0.55)"
-        ctx.fillRect(0, 0, canvas.width, canvas.height)
-        ctx.textAlign = "center"
-        ctx.fillStyle = "white"
-        ctx.font = `bold ${scaleFontPx(50)}px Arial`
-        ctx.fillText("Level 2", canvas.width / 2, canvas.height * 0.18)
-        ctx.font = `${scaleFontPx(30)}px Arial`
-        const introLines = [
-            "NOGO is on the lookout for fish leftovers.",
-            "Help him catch the fish bones as fast as possible,",
-            "but be careful about the direction!",
-        ]
-        const lh = scaleFontPx(38)
-        const startY = canvas.height * 0.3
-        introLines.forEach((l, i) => ctx.fillText(l, canvas.width / 2, startY + i * lh))
+        const { fx } = DoggoNogoUI
+        this.runInstructionScreen(canvas, {
+            badge: "LEVEL 2 · FOCUS",
+            title: "Here comes NOGO",
+            lines: [
+                "NOGO the cat is on the lookout for fish leftovers.",
+                "Press the arrow matching the DIRECTION the fishbone points —",
+                "no matter where on the screen it appears!",
+            ],
+            promptSegments: [{ t: "Press" }, { k: "◀" }, { t: "or" }, { k: "▶" }, { t: "to start" }],
+            drawVisual: (ctx, layout, elapsed) => {
+                // One fishbone per direction with its matching keycap, bobbing in antiphase. Both are
+                // drawn with the same fill, which is the point: the arrow to press is given by which
+                // way the fish points and by nothing else.
+                const boxHeight = Math.min((layout.bottom - layout.top) * 0.42, layout.h * 0.085)
+                const geom = this.getFishboneGeometry(boxHeight)
+                const cy = layout.cy - layout.h * 0.02
+                const leftX = layout.w * 0.32
+                const rightX = layout.w * 0.68
+                const bobL = Math.sin(elapsed / 550) * layout.h * 0.007
+                const bobR = Math.sin(elapsed / 550 + Math.PI) * layout.h * 0.007
+                const fill = this.state.fillPalette[0] || this.params.fishFill
 
-        // Draw both stimulus variants left and right with direction cues
-        const stimLeft = this.state.leftStimulusImg || this.assets.imgStimulus1
-        const stimRight = this.state.rightStimulusImg || this.assets.imgStimulus2 || this.assets.imgStimulus1
-        const stimH = Math.min(canvas.height * 0.18, stimLeft.naturalHeight || 100)
-        const stimAspectL = (stimLeft.naturalWidth || 100) / (stimLeft.naturalHeight || 100)
-        const stimAspectR = (stimRight.naturalWidth || 100) / (stimRight.naturalHeight || 100)
-        const stimWLeft = stimH * stimAspectL
-        const stimWRight = stimH * stimAspectR
-        const midY = canvas.height * 0.58
-        const leftXCenter = canvas.width * 0.25
-        const rightXCenter = canvas.width * 0.75
-        ctx.drawImage(stimLeft, leftXCenter - stimWLeft / 2, midY - stimH / 2, stimWLeft, stimH)
-        ctx.save()
-        ctx.translate(rightXCenter + stimWRight / 2, 0)
-        ctx.scale(-1, 1)
-        ctx.drawImage(stimRight, 0, midY - stimH / 2, stimWRight, stimH)
-        ctx.restore()
+                for (const [x, bob, direction] of [
+                    [leftX, bobL, -1],
+                    [rightX, bobR, 1],
+                ]) {
+                    DoggoNogoStimuli.drawFishbone(ctx, {
+                        centerX: x,
+                        centerY: cy + bob,
+                        length: geom.length,
+                        height: geom.innerHeight,
+                        direction,
+                        fill,
+                        outlines: geom.outlines,
+                        eyeColor: this.params.fishEyeColor,
+                    })
+                }
 
-        ctx.font = `${scaleFontPx(26)}px Arial`
-        ctx.fillStyle = "#FFD54F"
-        ctx.fillText("Press LEFT for left-pointing fishbone", leftXCenter, midY + stimH * 0.7)
-        ctx.fillText("Press RIGHT for right-pointing fishbone", rightXCenter, midY + stimH * 0.7)
-
-        // Held on the level so `beginLevel` can cancel it (see Level 1).
-        this.instructionHintTimeout = setTimeout(() => {
-            this.instructionHintTimeout = null
-            ctx.font = `bold ${scaleFontPx(34)}px Arial`
-            ctx.fillStyle = "#FFEE58"
-            ctx.fillText("Press LEFT or RIGHT to start", canvas.width / 2, canvas.height * 0.88)
-        }, 800)
+                // Matching keys beneath each fishbone
+                const capH = layout.h * 0.05
+                const capY = cy + geom.height / 2 + capH * 0.9
+                fx.drawKeycap(ctx, leftX, capY, capH, "◀")
+                fx.drawKeycap(ctx, rightX, capY, capH, "▶")
+            },
+        })
     },
 
     start: function (canvas, endGameCallback, options) {
@@ -292,13 +307,14 @@ export const level2 = {
         this.setPhaseTargets([targetPerPhase, targetPerPhase, targetPerPhase])
         window.level2Data = this.state.data
         this.assets.imgPlayer = this.assets.imgPlayer1
-        // Decide which stimulus variant goes on which side ONCE per level start (counter-balancing)
-        if (Math.random() < 0.5) {
-            this.state.leftStimulusImg = this.assets.imgStimulus1
-            this.state.rightStimulusImg = this.assets.imgStimulus2
+        // Fill palette for the session. Crucially the colour is NOT tied to a side here: in
+        // "orthogonal" mode `placeStimulus` re-draws it per trial, so it cannot stand in for the
+        // response the way the old sprite pair did.
+        if (this.params.stimulusColorMode === "orthogonal") {
+            const pair = this.params.fishFillPair
+            this.state.fillPalette = Math.random() < 0.5 ? [pair[0], pair[1]] : [pair[1], pair[0]]
         } else {
-            this.state.leftStimulusImg = this.assets.imgStimulus2
-            this.state.rightStimulusImg = this.assets.imgStimulus1
+            this.state.fillPalette = [this.params.fishFill]
         }
         DoggoNogoCore.startBackgroundMusic(this.assets.soundBackground)
         this.startNewTrial()
@@ -321,49 +337,76 @@ export const level2 = {
         return ["Press SPACE to continue"]
     },
 
-    /** Draws the stimulus (with horizontal mirroring for right-facing variants and exit animations). */
+    /**
+     * The base class derives the stimulus box from an image's natural dimensions, and there is no
+     * image any more. Handing it the fishbone's declared proportions makes the box exactly the shape.
+     */
+    getStimulusAspectImage: function () {
+        return { naturalWidth: this.params.stimulusAspect, naturalHeight: 1 }
+    },
+
+    /** Converts a box height in px into the arguments `drawFishbone` needs, outlines included. */
+    getFishboneGeometry: function (boxHeight) {
+        const outlines = this.params.fishOutlines.map((o) => ({ color: o.color, width: boxHeight * o.width }))
+        return { outlines, ...DoggoNogoStimuli.fishboneBox(boxHeight, this.params.stimulusAspect, outlines) }
+    },
+
+    /**
+     * Draws the fishbone, pointing the way this trial requires, with the exit animations.
+     *
+     * `direction` mirrors the geometry about the shape's own centre, so the two directions are exact
+     * reflections. The sprites were mirrored about their bounding box instead, and their ink sat a
+     * pixel off-centre inside it, so left- and right-pointing stimuli landed in slightly different
+     * places.
+     */
     drawStimulus: function () {
         const stim = this.state.stimulus
         if (!stim.visible && !stim.exiting) return
-        const img = stim.img || this.assets.imgStimulus1
-        const drawOne = (x, y, w, h, side, alpha = 1) => {
-            const ctx = this.state.ctx
-            ctx.save()
-            ctx.globalAlpha = alpha
-            if (side === "right") {
-                ctx.translate(x + w, 0)
-                ctx.scale(-1, 1)
-                ctx.drawImage(img, 0, y, w, h)
-            } else ctx.drawImage(img, x, y, w, h)
-            ctx.restore()
-        }
+
+        let x = stim.x
+        let y = stim.y
+        let width = stim.width
+        let height = stim.height
+        let alpha = 1
+
         if (stim.exiting) {
-            const elapsed = this.now() - stim.exitStartTime
-            const prog = Math.min(elapsed / stim.exitDuration, 1)
-            let x = stim.exitInitialX
-            let y = stim.exitInitialY
-            let w = stim.exitInitialWidth
-            let h = stim.exitInitialHeight
-            let alpha = 1
+            const progress = Math.min((this.now() - stim.exitStartTime) / stim.exitDuration, 1)
+            x = stim.exitInitialX
+            y = stim.exitInitialY
+            width = stim.exitInitialWidth
+            height = stim.exitInitialHeight
             if (stim.exitType === "catch") {
                 const pcx = this.state.player.x + this.state.player.width / 2
                 const pcy = this.state.player.y + this.state.player.height / 2
-                const targetX = pcx - (stim.exitInitialWidth * (1 - prog)) / 2
-                const targetY = pcy - (stim.exitInitialHeight * (1 - prog)) / 2
-                x = x + (targetX - x) * prog
-                y = y + (targetY - y) * prog
-                w = w * (1 - prog)
-                h = h * (1 - prog)
+                const targetX = pcx - (width * (1 - progress)) / 2
+                const targetY = pcy - (height * (1 - progress)) / 2
+                x += (targetX - x) * progress
+                y += (targetY - y) * progress
+                width *= 1 - progress
+                height *= 1 - progress
             } else if (stim.exitType === "timeout") {
-                const dist = this.state.canvas.width / 2
-                const dir = stim.exitInitialX > this.state.canvas.width / 2 ? 1 : -1
-                x = stim.exitInitialX + dir * dist * prog
-                alpha = 1 - prog
+                const dir = x > this.state.canvas.width / 2 ? 1 : -1
+                x += dir * (this.state.canvas.width / 2) * progress
+                alpha = 1 - progress
             }
-            drawOne(x, y, w, h, stim.side, alpha)
-        } else if (stim.visible) {
-            drawOne(stim.x, stim.y, stim.width, stim.height, stim.side, 1)
         }
+        if (width <= 0 || height <= 0) return
+
+        const geom = this.getFishboneGeometry(height)
+        const ctx = this.state.ctx
+        ctx.save()
+        ctx.globalAlpha = alpha
+        DoggoNogoStimuli.drawFishbone(ctx, {
+            centerX: x + width / 2,
+            centerY: y + height / 2,
+            length: geom.length,
+            height: geom.innerHeight,
+            direction: stim.side === "right" ? 1 : -1,
+            fill: stim.fill || this.params.fishFill,
+            outlines: geom.outlines,
+            eyeColor: this.params.fishEyeColor,
+        })
+        ctx.restore()
     },
 
     /** Hook (called by the base schedule): draw a region, resolve congruency, position the bone. */
@@ -404,7 +447,10 @@ export const level2 = {
         stim.region = region
         stim.side = side
         stim.difficulty = difficulty
-        stim.img = side === "left" ? this.state.leftStimulusImg : this.state.rightStimulusImg
+        // Colour is drawn independently of `side`, so it carries no information about the response.
+        // In "single" mode the palette has one entry and this is a constant.
+        const palette = this.state.fillPalette.length ? this.state.fillPalette : [this.params.fishFill]
+        stim.fill = palette[Math.floor(Math.random() * palette.length)]
         // Compute position based on region
         let centerX = this.state.canvas.width * 0.5
         let centerY = this.state.canvas.height * 0.5
@@ -457,6 +503,7 @@ export const level2 = {
                 StimulusSide: this.state.stimulus.side,
                 StimulusRegion: this.state.stimulus.region,
                 Difficulty: this.state.stimulus.difficulty || "NA",
+                StimulusColor: this.state.stimulus.fill || "NA",
                 ResponseKey: outcome.responseKey || "NA",
                 Correct: typeof outcome.correct === "boolean" ? (outcome.correct ? 1 : 0) : "NA",
                 StimulusX:
@@ -525,6 +572,8 @@ export const level2 = {
 
         // Early press: before the stimulus, or before the frame carrying it reached the screen
         if ((!this.state.stimulus.visible || this.isAwaitingStimulusOnset()) && !this.state.stimulus.exiting) {
+            // ...unless it is the late answer to the trial that just timed out (see core.js).
+            if (this.isBelatedResponse(e)) return
             this.cancelPendingStimulus()
             DoggoNogoCore.clearTrialSchedule(this.state)
             const nowISO = new Date().toISOString()

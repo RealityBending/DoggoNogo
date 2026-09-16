@@ -58,7 +58,357 @@ const drawCenteredText = (ctx, canvas, lines = [], fontSize = 30, color = "black
     lines.forEach((t, i) => ctx.fillText(t, canvas.width / 2, startY + i * (fontSize + 10)))
 }
 
+// ---------------------------------------------------------------------------
+// Shared visual theme + canvas drawing helpers (`DoggoNogoUI.theme` / `.fx`).
+// Everything is drawn in code. Two retro webfonts (below) are fetched at
+// import time; every font stack carries system fallbacks, so an offline run
+// simply renders with those and nothing breaks.
+// ---------------------------------------------------------------------------
+const THEME = {
+    // Body/UI text: a CRT-terminal face. VT323 only ships weight 400; the weights
+    // in font strings are kept for the fallback stack.
+    font: `"VT323", "Segoe UI", "Helvetica Neue", Arial, sans-serif`,
+    // Display/titles/score: a chunky arcade-cabinet pixel face. Glyphs are ~1em
+    // wide, so display text runs much wider than the fallback — size accordingly.
+    display: `"Press Start 2P", "Trebuchet MS", "Segoe UI", Arial, sans-serif`,
+    ink: "#f4f6fb",
+    inkSoft: "rgba(244,246,251,0.72)",
+    inkFaint: "rgba(244,246,251,0.45)",
+    bgDeep: "#0a0d18",
+    bgMid: "#131a2e",
+    panel: "rgba(9, 13, 25, 0.78)",
+    panelBorder: "rgba(255,255,255,0.14)",
+    accent: "#ffc857",
+    accentHot: "#ff9f1c",
+    accentSoft: "rgba(255,200,87,0.35)",
+    // Secondary arcade accents: cool counterweights to the gold, used for trims,
+    // brackets, rank tiers and the odd spark so the UI isn't monochrome-amber.
+    accentCyan: "#4cc9f0",
+    accentCyanSoft: "rgba(76,201,240,0.45)",
+    accentPurple: "#c77dff",
+    good: "#7bd88f",
+    bad: "#ff6b6b",
+    barTrack: "rgba(8, 10, 20, 0.55)",
+    // Progress-bar segments, one per phase: a saturated green ramp (lime -> deep green -> cyan)
+    // rather than the old pastel green/blue/purple. Two constraints shaped the picks. The gloss in
+    // `drawProgressBar` lightens whatever goes under it, so these are chosen deeper than they read
+    // on screen. And the middle one cannot be as deep as its hue invites: a much darker green in the
+    // middle of a left-to-right ramp reads as a dark *band*, as if that phase were unlit, so its
+    // lightness is lifted until the ramp climbs evenly while staying clearly deeper than the other
+    // two. They also tint the phase-break banner (`drawBreakOverlay` in core.js), which is the other
+    // reason they must stay distinguishable from each other.
+    barColors: ["#9de000", "#00c25f", "#00d1e0"],
+}
+
+const easeOutCubic = (t) => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 3)
+const easeOutBack = (t) => {
+    const c = 1.70158
+    const x = Math.min(1, Math.max(0, t)) - 1
+    return 1 + (c + 1) * x * x * x + c * x * x
+}
+/** 0..1 sine pulse for breathing prompts. */
+const pulse01 = (ms, period = 1200) => 0.5 + 0.5 * Math.sin((ms / period) * Math.PI * 2)
+
+function roundRectPath(ctx, x, y, w, h, r) {
+    const rr = Math.min(r, w / 2, h / 2)
+    ctx.beginPath()
+    ctx.moveTo(x + rr, y)
+    ctx.arcTo(x + w, y, x + w, y + h, rr)
+    ctx.arcTo(x + w, y + h, x, y + h, rr)
+    ctx.arcTo(x, y + h, x, y, rr)
+    ctx.arcTo(x, y, x + w, y, rr)
+    ctx.closePath()
+}
+
+/**
+ * Translucent dark panel with border, soft drop shadow, a faint top bevel, and arcade-style
+ * corner brackets (pass `opts.corners: false` to suppress them).
+ */
+function drawPanel(ctx, x, y, w, h, r, opts = {}) {
+    // The radius the path actually gets (roundRectPath clamps it); the brackets must follow it.
+    const rr = Math.min(r, w / 2, h / 2)
+    ctx.save()
+    ctx.shadowColor = "rgba(0,0,0,0.45)"
+    ctx.shadowBlur = h * 0.15
+    ctx.shadowOffsetY = h * 0.03
+    roundRectPath(ctx, x, y, w, h, rr)
+    ctx.fillStyle = opts.fill || THEME.panel
+    ctx.fill()
+    ctx.shadowColor = "transparent"
+    // Top bevel: a soft light catching the upper edge, clipped to the panel so it rounds with it.
+    ctx.save()
+    roundRectPath(ctx, x, y, w, h, rr)
+    ctx.clip()
+    const bevel = ctx.createLinearGradient(0, y, 0, y + h * 0.18)
+    bevel.addColorStop(0, "rgba(255,255,255,0.09)")
+    bevel.addColorStop(1, "rgba(255,255,255,0)")
+    ctx.fillStyle = bevel
+    ctx.fillRect(x, y, w, h * 0.18)
+    ctx.restore()
+    ctx.strokeStyle = opts.border || THEME.panelBorder
+    ctx.lineWidth = Math.max(1, h * 0.008)
+    ctx.stroke()
+    // Corner brackets: short cyan ticks hugging each corner, like a CRT menu frame — the cool
+    // counterpoint to the theme's golden accent. Each bracket bends around its corner on an arc
+    // concentric with the panel's own corner, so a rounded panel gets rounded brackets: the
+    // square-elbowed ticks this used to draw read as a second, sharper frame inside the first.
+    if (opts.corners !== false) {
+        const L = Math.min(w, h) * 0.1
+        const inset = Math.max(2, rr * 0.35)
+        const cr = Math.max(0, rr - inset) // bracket corner radius, concentric with the panel's
+        ctx.strokeStyle = opts.cornerColor || THEME.accentCyanSoft
+        ctx.lineWidth = Math.max(1.5, h * 0.012)
+        ctx.lineCap = "round"
+        const corner = (cx, cy, dx, dy) => {
+            ctx.beginPath()
+            ctx.moveTo(cx + dx * (cr + L), cy)
+            ctx.arcTo(cx, cy, cx, cy + dy * (cr + L), cr)
+            ctx.lineTo(cx, cy + dy * (cr + L))
+            ctx.stroke()
+        }
+        corner(x + inset, y + inset, 1, 1)
+        corner(x + w - inset, y + inset, -1, 1)
+        corner(x + inset, y + h - inset, 1, -1)
+        corner(x + w - inset, y + h - inset, -1, -1)
+    }
+    ctx.restore()
+}
+
+/**
+ * Draws a 3D-looking keyboard keycap centered on (cx, cy). `h` is the cap height;
+ * labels longer than 2 chars (e.g. "SPACE") get a wide cap. Returns the cap width.
+ */
+function drawKeycap(ctx, cx, cy, h, label, opts = {}) {
+    const isWord = String(label).length > 2
+    const w = isWord ? h * 2.9 : h * 1.05
+    const x = cx - w / 2
+    const y = cy - h / 2
+    const r = h * 0.22
+    ctx.save()
+    // Base (gives the key its depth)
+    roundRectPath(ctx, x, y + h * 0.1, w, h, r)
+    ctx.fillStyle = "rgba(0,0,0,0.5)"
+    ctx.fill()
+    // Cap body
+    const g = ctx.createLinearGradient(0, y, 0, y + h)
+    g.addColorStop(0, opts.top || "#2c3450")
+    g.addColorStop(1, opts.bottom || "#161b2b")
+    roundRectPath(ctx, x, y, w, h, r)
+    ctx.fillStyle = g
+    ctx.fill()
+    // Cyan-tinted rim: reads as backlit arcade-cabinet keys.
+    ctx.strokeStyle = opts.border || "rgba(140,215,255,0.45)"
+    ctx.lineWidth = Math.max(1, h * 0.05)
+    ctx.stroke()
+    // Glyph. Words get the pixel display face (arcade cabinet keys); single glyphs like
+    // "▼" stay on the body stack, which actually has the arrow glyphs.
+    ctx.fillStyle = opts.ink || THEME.ink
+    ctx.textAlign = "center"
+    ctx.textBaseline = "middle"
+    ctx.font = isWord ? `${Math.round(h * 0.3)}px ${THEME.display}` : `700 ${Math.round(h * 0.52)}px ${THEME.font}`
+    ctx.fillText(label, cx, cy + h * 0.03)
+    ctx.restore()
+    return w
+}
+
+/**
+ * Text-with-glow sprite cache. `shadowBlur` on text is rasterized in software and costs
+ * many milliseconds per frame at title sizes — re-drawing it every rAF is what made the
+ * phase-break banner stutter. Each (text, size, style) combination is rendered once to an
+ * offscreen canvas and blitted afterwards; animated text scales the cached sprite via
+ * `opts.scale` instead of re-rendering at a new font size every frame.
+ */
+const textSpriteCache = new Map()
+
+/**
+ * Fetches the two retro webfonts (Press Start 2P for display text, VT323 for body text) from
+ * Google Fonts. Canvas font strings fall back silently while a webfont is missing, so text drawn
+ * before the fonts arrive is rendered with the system fallback and *cached that way* by
+ * `getTextSprite` — hence the cache is cleared the moment the fonts become usable, and every
+ * sprite re-rasterizes in the real face on its next draw. Offline (or with the CDN blocked) the
+ * load simply never resolves and the fallback stacks stay in place.
+ */
+function ensureRetroFonts() {
+    if (typeof document === "undefined" || document.getElementById("doggonogo-retro-fonts")) return
+    try {
+        const preconnect = (href, cross) => {
+            const l = document.createElement("link")
+            l.rel = "preconnect"
+            l.href = href
+            if (cross) l.crossOrigin = "anonymous"
+            document.head.appendChild(l)
+        }
+        preconnect("https://fonts.googleapis.com")
+        preconnect("https://fonts.gstatic.com", true)
+        const link = document.createElement("link")
+        link.id = "doggonogo-retro-fonts"
+        link.rel = "stylesheet"
+        link.href = "https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap"
+        const armReload = () => {
+            if (!document.fonts || !document.fonts.load) return
+            Promise.all([document.fonts.load('16px "Press Start 2P"'), document.fonts.load('16px "VT323"')])
+                .then(() => textSpriteCache.clear())
+                .catch(() => {})
+        }
+        // The families are unknown until the stylesheet itself lands, so load them from its
+        // onload; `fonts.ready` is a belt-and-braces second trigger.
+        link.onload = armReload
+        document.head.appendChild(link)
+        if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => textSpriteCache.clear()).catch(() => {})
+    } catch (e) {
+        console.debug("Retro font injection failed (fallback fonts in use)", e)
+    }
+}
+ensureRetroFonts()
+
+function getTextSprite(text, px, opts = {}) {
+    const weight = opts.weight || 800
+    const font = opts.font || THEME.display
+    const color = opts.color || THEME.ink
+    const glow = opts.glow || "rgba(0,0,0,0.85)"
+    const glowSize = opts.glowSize ?? 0.25
+    const letterSpacing = opts.letterSpacing || "0px"
+    const sizePx = Math.max(1, Math.round(px))
+    const key = [text, sizePx, weight, font, color, glow, glowSize, letterSpacing].join("|")
+    const hit = textSpriteCache.get(key)
+    if (hit) return hit
+    // Sprites are keyed by canvas size among other things; a resize repopulates the cache,
+    // so keep it bounded rather than growing across resizes.
+    if (textSpriteCache.size > 64) textSpriteCache.clear()
+    const c = document.createElement("canvas")
+    const g = c.getContext("2d")
+    const setFont = () => {
+        g.font = `${weight} ${sizePx}px ${font}`
+        try {
+            g.letterSpacing = letterSpacing
+        } catch (e) {
+            /* older browsers: no letter-spacing on canvas */
+        }
+    }
+    setFont()
+    const textW = g.measureText(text).width
+    const pad = Math.ceil(sizePx * (glowSize + 0.3))
+    c.width = Math.max(1, Math.ceil(textW) + pad * 2)
+    c.height = Math.max(1, Math.ceil(sizePx * 1.5) + pad * 2)
+    setFont() // resizing a canvas resets its context state
+    g.textAlign = "left"
+    g.textBaseline = "alphabetic"
+    g.shadowColor = glow
+    g.shadowBlur = sizePx * glowSize
+    g.shadowOffsetY = sizePx * 0.04
+    g.fillStyle = color
+    const baselineY = pad + sizePx
+    g.fillText(text, pad, baselineY)
+    const sprite = { canvas: c, pad, baselineY, textW }
+    textSpriteCache.set(key, sprite)
+    return sprite
+}
+
+/**
+ * Bold display text with a soft dark halo, for titles over artwork. Rendered through the
+ * sprite cache above. To animate size, keep `px` constant and pass `opts.scale` (0..1+).
+ * Honors the current `ctx.globalAlpha`.
+ */
+function drawGlowText(ctx, text, x, y, px, opts = {}) {
+    if (!text) return
+    const scale = opts.scale ?? 1
+    if (scale <= 0.01) return
+    const sprite = getTextSprite(text, px, opts)
+    const align = opts.align || "center"
+    let originX = x - sprite.pad * scale
+    if (align === "center") originX = x - (sprite.pad + sprite.textW / 2) * scale
+    else if (align === "right") originX = x - (sprite.pad + sprite.textW) * scale
+    const originY = y - sprite.baselineY * scale
+    ctx.drawImage(sprite.canvas, originX, originY, sprite.canvas.width * scale, sprite.canvas.height * scale)
+}
+
+/**
+ * Draws a horizontal prompt row centered on (cx, cy), mixing plain text and keycaps.
+ * `segments` is an array of `{ t: "Press" }` (text) or `{ k: "▼" }` (keycap) items,
+ * e.g. [{t:"Press"},{k:"SPACE"},{t:"to continue"}]. `capH` sets the keycap height.
+ */
+function drawPromptRow(ctx, cx, cy, capH, segments, opts = {}) {
+    ctx.save()
+    const font = `600 ${Math.round(capH * 0.62)}px ${THEME.font}`
+    ctx.font = font
+    const gap = capH * 0.45
+    const items = segments.map((s) => {
+        if (s.k !== undefined) {
+            const isWord = String(s.k).length > 2
+            return { ...s, w: isWord ? capH * 2.9 : capH * 1.05 }
+        }
+        return { ...s, w: ctx.measureText(s.t).width }
+    })
+    let total = 0
+    items.forEach((it, i) => {
+        total += it.w
+        if (i < items.length - 1) total += gap
+    })
+    let x = cx - total / 2
+    for (const it of items) {
+        if (it.k !== undefined) {
+            drawKeycap(ctx, x + it.w / 2, cy, capH, it.k)
+        } else {
+            ctx.font = font
+            ctx.textAlign = "left"
+            ctx.textBaseline = "middle"
+            ctx.fillStyle = opts.color || THEME.ink
+            ctx.shadowColor = "rgba(0,0,0,0.8)"
+            ctx.shadowBlur = capH * 0.25
+            ctx.fillText(it.t, x, cy + capH * 0.04)
+            ctx.shadowColor = "transparent"
+        }
+        x += it.w + gap
+    }
+    ctx.restore()
+}
+
+/**
+ * Tri-colour title underline: a slim cyan -> gold -> purple gradient rule that fades out at
+ * both ends, centered on (cx). The one-line way to give a heading some arcade sparkle.
+ */
+function drawTitleRule(ctx, cx, y, width, thick) {
+    const g = ctx.createLinearGradient(cx - width / 2, 0, cx + width / 2, 0)
+    g.addColorStop(0, "rgba(76,201,240,0)")
+    g.addColorStop(0.22, THEME.accentCyan)
+    g.addColorStop(0.5, THEME.accent)
+    g.addColorStop(0.78, THEME.accentPurple)
+    g.addColorStop(1, "rgba(199,125,255,0)")
+    ctx.save()
+    ctx.fillStyle = g
+    ctx.fillRect(cx - width / 2, y, width, Math.max(1.5, thick))
+    ctx.restore()
+}
+
+/** Darkens the canvas edges so UI and artwork read against any background. */
+function drawVignette(ctx, w, h, strength = 0.55) {
+    ctx.save()
+    const g = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.35, w / 2, h / 2, Math.max(w, h) * 0.72)
+    g.addColorStop(0, "rgba(0,0,0,0)")
+    g.addColorStop(1, `rgba(0,0,0,${strength})`)
+    ctx.fillStyle = g
+    ctx.fillRect(0, 0, w, h)
+    ctx.restore()
+}
+
 export const DoggoNogoUI = {
+    // Shared visual language: colors/fonts plus the low-level drawing helpers,
+    // consumed by the engine, the intro runner and the levels.
+    theme: THEME,
+    fx: {
+        roundRectPath,
+        drawPanel,
+        drawKeycap,
+        drawGlowText,
+        drawVignette,
+        drawPromptRow,
+        drawTitleRule,
+        easeOutCubic,
+        easeOutBack,
+        pulse01,
+        scaleFontPx,
+    },
+
     /**
      * Converts a Z-score to a quantile assuming a standard normal distribution.
      * Since lower IES is better, the quantile reflects the percentage of the population
@@ -94,65 +444,182 @@ export const DoggoNogoUI = {
         scoreScreenRafId = null
     },
 
+    /**
+     * End-of-level report card: dark stage, the player's sprite in a spotlight, an animated
+     * ring gauge counting up to the percentile, a rank title and celebratory confetti.
+     * The loop keeps running (confetti + pulsing hint) until `cancelScoreScreen()` — which the
+     * engine calls before every run and on stop.
+     */
     showScoreScreen(canvas, quantile, options = {}) {
         const { hint, playerSprite } = options || {}
         const ctx = canvas.getContext("2d")
-        const duration = 3000 // 3 seconds for the animation
+        const countDuration = 2400 // ms for the gauge/number count-up
         let startTime = null
         // Never leave two of these animating the same canvas.
         DoggoNogoUI.cancelScoreScreen()
 
+        const q = Math.min(100, Math.max(0, quantile || 0))
+        const rank = q >= 90 ? "LEGENDARY REFLEXES" : q >= 70 ? "BLAZING FAST" : q >= 50 ? "QUICK PAWS" : q >= 25 ? "SOLID EFFORT" : "WARMING UP"
+        // Rank tiers carry their own colour, like arcade medal grades.
+        const rankColor = q >= 90 ? THEME.accentPurple : q >= 70 ? THEME.accent : q >= 50 ? THEME.accentCyan : q >= 25 ? THEME.good : THEME.inkSoft
+        const confettiColors = [THEME.accent, "#4cc9f0", "#7bd88f", "#ff6b6b", "#c77dff", "#ffffff"]
+        const confetti = []
+        const spawnConfetti = (n, w, h) => {
+            for (let i = 0; i < n; i++) {
+                confetti.push({
+                    x: Math.random() * w,
+                    y: -Math.random() * h * 0.6,
+                    size: (Math.random() * 0.6 + 0.4) * h * 0.012,
+                    vy: (Math.random() * 0.9 + 0.5) * h * 0.0035,
+                    sway: Math.random() * Math.PI * 2,
+                    swaySpeed: Math.random() * 0.06 + 0.02,
+                    rot: Math.random() * Math.PI,
+                    vrot: (Math.random() - 0.5) * 0.15,
+                    color: confettiColors[i % confettiColors.length],
+                })
+            }
+        }
+
         const animateScore = (timestamp) => {
-            if (!startTime) startTime = timestamp
-            const progress = Math.min((timestamp - startTime) / duration, 1)
-            const currentDisplayNumber = Math.floor(progress * quantile)
+            if (!startTime) {
+                startTime = timestamp
+                spawnConfetti(Math.round(120), canvas.width, canvas.height)
+            }
+            const elapsed = timestamp - startTime
+            const progress = Math.min(elapsed / countDuration, 1)
+            const eased = easeOutCubic(progress)
+            const shown = eased * q
+            const w = canvas.width
+            const h = canvas.height
 
-            // Always white background
-            ctx.clearRect(0, 0, canvas.width, canvas.height)
-            ctx.fillStyle = "#ffffff"
-            ctx.fillRect(0, 0, canvas.width, canvas.height)
+            // Stage
+            const bg = ctx.createLinearGradient(0, 0, 0, h)
+            bg.addColorStop(0, THEME.bgMid)
+            bg.addColorStop(1, THEME.bgDeep)
+            ctx.fillStyle = bg
+            ctx.fillRect(0, 0, w, h)
+            drawVignette(ctx, w, h, 0.5)
 
-            // 1. "Level Complete" at the top
-            ctx.textAlign = "center"
-            ctx.fillStyle = "black"
-            ctx.font = `${scaleFontPx(48, canvas)}px Arial`
-            ctx.fillText("Level Complete!", canvas.width / 2, canvas.height * 0.15)
+            // Title
+            drawGlowText(ctx, "LEVEL COMPLETE", w / 2, h * 0.14, h * 0.052, {
+                color: THEME.ink,
+                letterSpacing: `${Math.round(h * 0.002)}px`,
+            })
+            drawTitleRule(ctx, w / 2, h * 0.162, w * 0.24, h * 0.004)
+            // Rank reveal once the counter settles
+            if (progress >= 1) {
+                const rankIn = easeOutBack(Math.min(1, (elapsed - countDuration) / 400))
+                ctx.save()
+                ctx.globalAlpha = Math.min(1, (elapsed - countDuration) / 300)
+                drawGlowText(ctx, rank, w / 2, h * 0.225, h * 0.026, {
+                    color: rankColor,
+                    letterSpacing: `${Math.round(h * 0.002)}px`,
+                    scale: rankIn,
+                })
+                ctx.restore()
+            }
 
-            // 2. Player sprite on the left
+            // Player sprite in a spotlight, gently bobbing
+            const spriteCx = w * 0.28
+            const spriteCy = h * 0.58
+            ctx.save()
+            const spot = ctx.createRadialGradient(spriteCx, spriteCy, h * 0.02, spriteCx, spriteCy, h * 0.34)
+            spot.addColorStop(0, "rgba(255, 220, 150, 0.18)")
+            spot.addColorStop(1, "rgba(255, 220, 150, 0)")
+            ctx.fillStyle = spot
+            ctx.fillRect(0, 0, w, h)
+            ctx.restore()
             if (playerSprite && playerSprite.complete) {
+                const bob = Math.sin(elapsed / 620) * h * 0.008
                 const aspectRatio = playerSprite.naturalWidth / playerSprite.naturalHeight
-                const displayHeight = canvas.height * 0.5
+                const displayHeight = h * 0.46
                 const displayWidth = displayHeight * aspectRatio
-                const xFeedbackImg = canvas.width * 0.05
-                const yFeedbackImg = canvas.height / 2 - displayHeight / 2
-                ctx.drawImage(playerSprite, xFeedbackImg, yFeedbackImg, displayWidth, displayHeight)
+                // Ground shadow
+                ctx.save()
+                ctx.fillStyle = "rgba(0,0,0,0.4)"
+                ctx.beginPath()
+                ctx.ellipse(spriteCx, spriteCy + displayHeight / 2, displayWidth * 0.36, h * 0.02, 0, 0, Math.PI * 2)
+                ctx.fill()
+                ctx.restore()
+                ctx.drawImage(playerSprite, spriteCx - displayWidth / 2, spriteCy - displayHeight / 2 + bob, displayWidth, displayHeight)
             }
 
-            // 3. Text and score on the right
-            const textX = canvas.width * 0.65
-            ctx.font = `${scaleFontPx(28, canvas)}px Arial`
-            ctx.fillText("Based on the speed and accuracy", textX, canvas.height / 2 - 100)
-            ctx.fillText("of your reflexes, you managed to beat...", textX, canvas.height / 2 - 60)
+            // Percentile ring gauge
+            const ringCx = w * 0.66
+            const ringCy = h * 0.55
+            const ringR = h * 0.2
+            const ringW = h * 0.028
+            drawGlowText(ctx, "Speed and accuracy of your reflexes:", ringCx, ringCy - ringR - h * 0.06, h * 0.034, {
+                color: THEME.inkSoft,
+                weight: 600,
+                font: THEME.font,
+            })
+            ctx.save()
+            ctx.lineWidth = ringW
+            ctx.lineCap = "round"
+            // Track
+            ctx.strokeStyle = "rgba(255,255,255,0.1)"
+            ctx.beginPath()
+            ctx.arc(ringCx, ringCy, ringR, 0, Math.PI * 2)
+            ctx.stroke()
+            // Fill arc
+            if (shown > 0.2) {
+                const a0 = -Math.PI / 2
+                const a1 = a0 + (Math.PI * 2 * shown) / 100
+                const rg = ctx.createLinearGradient(ringCx - ringR, ringCy, ringCx + ringR, ringCy)
+                rg.addColorStop(0, THEME.accentHot)
+                rg.addColorStop(1, THEME.accent)
+                ctx.strokeStyle = rg
+                ctx.shadowColor = THEME.accentSoft
+                ctx.shadowBlur = ringW * 1.4
+                ctx.beginPath()
+                ctx.arc(ringCx, ringCy, ringR, a0, a1)
+                ctx.stroke()
+            }
+            ctx.restore()
+            // Number inside the ring
+            ctx.save()
+            ctx.textAlign = "center"
+            ctx.textBaseline = "middle"
+            ctx.fillStyle = THEME.ink
+            ctx.font = `${Math.round(h * 0.075)}px ${THEME.display}`
+            ctx.fillText(`${Math.floor(shown)}%`, ringCx, ringCy - h * 0.012)
+            ctx.fillStyle = THEME.inkSoft
+            ctx.font = `600 ${Math.round(h * 0.028)}px ${THEME.font}`
+            ctx.fillText("OF PLAYERS BEATEN", ringCx, ringCy + h * 0.058)
+            ctx.restore()
 
-            if (progress < 1) {
-                // Flashing numbers animation
-                ctx.font = `bold ${scaleFontPx(72, canvas)}px Arial`
-                ctx.fillText(`${currentDisplayNumber}%`, textX, canvas.height / 2 + 40)
-                scoreScreenRafId = requestAnimationFrame(animateScore)
-            } else {
-                scoreScreenRafId = null
-                // Final screen
-                ctx.font = `bold ${scaleFontPx(72, canvas)}px Arial`
-                ctx.fillText(`${quantile.toFixed(0)}%`, textX, canvas.height / 2 + 40)
-                ctx.font = `${scaleFontPx(28, canvas)}px Arial`
-                ctx.fillText("of the players! Well done!", textX, canvas.height / 2 + 100)
-
-                // Optional hint
-                if (hint) {
-                    ctx.font = `${scaleFontPx(24, canvas)}px Arial`
-                    ctx.fillText(hint, textX, canvas.height / 2 + 150)
+            // Confetti (starts falling immediately; recycled for the first few seconds)
+            ctx.save()
+            for (const c of confetti) {
+                c.y += c.vy
+                c.sway += c.swaySpeed
+                c.x += Math.sin(c.sway) * h * 0.0012
+                c.rot += c.vrot
+                if (c.y > h + c.size && elapsed < 6000) {
+                    c.y = -c.size * 2
+                    c.x = Math.random() * w
                 }
+                if (c.y > h + c.size) continue
+                ctx.save()
+                ctx.translate(c.x, c.y)
+                ctx.rotate(c.rot)
+                ctx.fillStyle = c.color
+                ctx.globalAlpha = 0.9
+                ctx.fillRect(-c.size / 2, -c.size / 4, c.size, c.size / 2)
+                ctx.restore()
             }
+            ctx.restore()
+
+            // Continue hint, breathing, once the count has settled
+            if (hint && progress >= 1) {
+                ctx.save()
+                ctx.globalAlpha = 0.55 + 0.45 * pulse01(elapsed, 1400)
+                drawGlowText(ctx, hint, w / 2, h * 0.92, h * 0.028, { color: THEME.accent, weight: 600, font: THEME.font })
+                ctx.restore()
+            }
+
+            scoreScreenRafId = requestAnimationFrame(animateScore)
         }
 
         scoreScreenRafId = requestAnimationFrame(animateScore)
@@ -187,32 +654,70 @@ export const DoggoNogoCore = {
         if (target instanceof HTMLCanvasElement) {
             const ctx = target.getContext("2d")
             if (!ctx) return
+            const w = target.width
+            const h = target.height
             ctx.save()
-            ctx.fillStyle = "#fff"
-            ctx.fillRect(0, 0, target.width, target.height)
-            ctx.fillStyle = "#000"
+            // Dark stage with a faint center glow
+            const bg = ctx.createLinearGradient(0, 0, 0, h)
+            bg.addColorStop(0, THEME.bgMid)
+            bg.addColorStop(1, THEME.bgDeep)
+            ctx.fillStyle = bg
+            ctx.fillRect(0, 0, w, h)
+            const glow = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.min(w, h) * 0.6)
+            glow.addColorStop(0, "rgba(255, 200, 87, 0.06)")
+            glow.addColorStop(1, "rgba(255, 200, 87, 0)")
+            ctx.fillStyle = glow
+            ctx.fillRect(0, 0, w, h)
+
+            // Two-tone logo, matching the cover art: cyan hero vs hot-orange villain.
+            const titlePx = Math.round(h * 0.045)
+            ctx.font = `800 ${titlePx}px ${THEME.display}`
+            const wDog = ctx.measureText("DOGGO").width
+            const wSlash = ctx.measureText(" / ").width
+            const wNogo = ctx.measureText("NOGO").width
+            let tx = w / 2 - (wDog + wSlash + wNogo) / 2
+            drawGlowText(ctx, "DOGGO", tx, h * 0.42, titlePx, { color: THEME.accentCyan, align: "left" })
+            drawGlowText(ctx, " / ", tx + wDog, h * 0.42, titlePx, { color: THEME.ink, align: "left" })
+            drawGlowText(ctx, "NOGO", tx + wDog + wSlash, h * 0.42, titlePx, { color: THEME.accentHot, align: "left" })
             ctx.textAlign = "center"
-            // Simple responsive font size
-            const fs = Math.round(Math.min(target.width, target.height) * 0.035)
-            ctx.font = `${fs}px Arial`
-            ctx.fillText(message, target.width / 2, target.height / 2 - fs)
+            ctx.fillStyle = THEME.inkSoft
+            ctx.font = `600 ${Math.round(h * 0.032)}px ${THEME.font}`
+            ctx.fillText(message, w / 2, h * 0.5)
+
             if (typeof progress === "number") {
-                const barW = target.width * 0.4
-                const barH = Math.max(6, Math.round(target.height * 0.012))
-                const barX = target.width / 2 - barW / 2
-                const barY = target.height / 2 + fs
-                ctx.fillStyle = "#ddd"
-                ctx.fillRect(barX, barY, barW, barH)
-                ctx.fillStyle = "#4CAF50"
-                ctx.fillRect(barX, barY, barW * Math.min(1, Math.max(0, progress)), barH)
-                ctx.strokeStyle = "#999"
+                const p = Math.min(1, Math.max(0, progress))
+                const barW = w * 0.4
+                const barH = Math.max(8, Math.round(h * 0.016))
+                const barX = w / 2 - barW / 2
+                const barY = h * 0.56
+                // Track
+                roundRectPath(ctx, barX, barY, barW, barH, barH / 2)
+                ctx.fillStyle = "rgba(255,255,255,0.09)"
+                ctx.fill()
+                ctx.strokeStyle = "rgba(255,255,255,0.15)"
                 ctx.lineWidth = 1
-                ctx.strokeRect(barX, barY, barW, barH)
+                ctx.stroke()
+                // Fill
+                if (p > 0.01) {
+                    const fg = ctx.createLinearGradient(barX, 0, barX + barW, 0)
+                    fg.addColorStop(0, THEME.accentHot)
+                    fg.addColorStop(1, THEME.accent)
+                    ctx.save()
+                    roundRectPath(ctx, barX, barY, barW * p, barH, barH / 2)
+                    ctx.shadowColor = THEME.accentSoft
+                    ctx.shadowBlur = barH
+                    ctx.fillStyle = fg
+                    ctx.fill()
+                    ctx.restore()
+                }
+                ctx.fillStyle = THEME.inkFaint
+                ctx.font = `600 ${Math.round(h * 0.02)}px ${THEME.font}`
+                ctx.fillText(`${Math.round(p * 100)}%`, w / 2, barY + barH + h * 0.035)
             }
             ctx.restore()
         } else if (target instanceof HTMLElement) {
             target.innerHTML =
-                `<div style="display:flex;align-items:center;justify-content:center;min-height:60vh;background:#fff;font:20px Arial;color:#000;">` +
+                `<div style="display:flex;align-items:center;justify-content:center;min-height:60vh;background:#0a0d18;font:600 20px 'Segoe UI',Arial,sans-serif;color:#f4f6fb;">` +
                 `<div style="text-align:center;">${message}</div></div>`
         }
     },
@@ -399,35 +904,260 @@ export const DoggoNogoCore = {
         // A missing asset here is not fatal: the level reloads its own copies and reports properly.
         return this.loadAssets(assets, onProgress).catch((e) => console.warn("Preload incomplete", e))
     },
-    // Draw the top progress bar (3 segments) based on current score and phase targets.
+    // Draw the top progress bar — an arcade "life bar": a slanted metal casing holding twelve
+    // energy cells across the three phase segments, with a hot leading edge, a travelling shine,
+    // spark bursts while the bar is charging, and a flash + shockwave ring when a phase segment
+    // fills. Purely visual: the fill eases toward the true score each frame, but the underlying
+    // score/phase logic is untouched.
     drawProgressBar(level, opts = {}) {
         if (!level || !level.state) return
         const ctx = level.state.ctx
         const canvas = level.state.canvas
+        const state = level.state
         const widthRatio = opts.widthRatio || 0.5
         const heightRatio = opts.heightRatio || 0.033
         const topOffsetRatio = opts.topOffsetRatio || 0.033
-        const colors = opts.colors || ["#4CAF50", "#00BCD4", "#2196F3"]
+        const colors = opts.colors || THEME.barColors
         const barWidth = canvas.width * widthRatio
         const barHeight = canvas.height * heightRatio
         const x = canvas.width / 2 - barWidth / 2
         const y = canvas.height * topOffsetRatio
-        ctx.fillStyle = "#555"
-        ctx.fillRect(x, y, barWidth, barHeight)
+        const t = typeof state.frameTime === "number" && state.frameTime ? state.frameTime : Date.now()
+
+        // Smoothed display score (visual only)
+        if (typeof state._barDisplayScore !== "number") state._barDisplayScore = state.score
+        state._barDisplayScore += (state.score - state._barDisplayScore) * 0.14
+        if (Math.abs(state.score - state._barDisplayScore) < 0.5) state._barDisplayScore = state.score
+        const displayScore = state._barDisplayScore
+        // How hard the bar is currently working, 0 at rest to 1 while a fresh award is
+        // still being absorbed, measured in units of one minimum award. The resting bar
+        // used to bloom at full strength permanently, which read as activity when nothing
+        // was happening; the effects below scale with this instead.
+        const award = (level.params && level.params.minScore) || 100
+        const charging = Math.min(1, Math.max(0, (state.score - displayScore) / award))
+
         const segWidth = barWidth / 3
         const phaseTargets = typeof level.getPhaseTargets === "function" ? level.getPhaseTargets() : [1, 1, 1]
+
+        // Per-run effect bookkeeping (visual only; lives on state so a restart resets it)
+        if (!state._barFx) state._barFx = { sparks: [], flashUntil: 0, flashX: x + barWidth, cleared: 0 }
+        const fx = state._barFx
+
+        // Per-segment fill fractions and the position of the leading edge
+        const bounds = []
+        let acc = 0
         for (let i = 0; i < 3; i++) {
-            const startScore = i === 0 ? 0 : phaseTargets.slice(0, i).reduce((a, b) => a + b, 0)
-            const endScore = startScore + (phaseTargets[i] || 0)
-            if (endScore <= startScore) continue
-            const raw = (level.state.score - startScore) / (endScore - startScore)
-            const frac = Math.min(1, Math.max(0, raw))
-            if (frac <= 0) continue
-            ctx.fillStyle = colors[i % colors.length]
-            ctx.fillRect(x + i * segWidth, y, segWidth * frac, barHeight)
+            acc += phaseTargets[i] || 0
+            bounds.push(acc)
         }
-        ctx.strokeStyle = "#000"
-        ctx.strokeRect(x, y, barWidth, barHeight)
+        const fracs = []
+        let tipX = null
+        for (let i = 0; i < 3; i++) {
+            const startScore = i === 0 ? 0 : bounds[i - 1]
+            const span = Math.max(1e-6, bounds[i] - startScore)
+            const frac = Math.min(1, Math.max(0, (displayScore - startScore) / span))
+            fracs.push(frac)
+            if (frac > 0 && frac < 1 && tipX === null) tipX = x + i * segWidth + segWidth * frac
+        }
+        if (tipX === null && displayScore > 0 && displayScore >= bounds[2] - 0.5) tipX = x + barWidth
+
+        // Segment-clear detection: flash + ring the moment a boundary (or the full bar) lights up.
+        let cleared = 0
+        for (let i = 0; i < 3; i++) if (displayScore >= bounds[i] - 0.5 && bounds[i] > 0) cleared = i + 1
+        if (cleared > fx.cleared) {
+            fx.flashUntil = t + 520
+            fx.flashX = x + cleared * segWidth
+        }
+        fx.cleared = cleared
+
+        // Everything up to the ring/sparks is drawn in a sheared frame, which turns plain rects
+        // into the slanted parallelograms of a fighting-game health bar. The shear pivots on the
+        // bar's vertical center, so x coordinates at mid-height are unchanged.
+        const shear = 0.5
+        const yMid = y + barHeight / 2
+        ctx.save()
+        ctx.transform(1, 0, -shear, 1, shear * yMid, 0)
+
+        // Casing: dark metal shell with a top bevel
+        const pad = barHeight * 0.32
+        ctx.save()
+        ctx.shadowColor = "rgba(0,0,0,0.55)"
+        ctx.shadowBlur = barHeight * 0.7
+        ctx.shadowOffsetY = barHeight * 0.18
+        const shell = ctx.createLinearGradient(0, y - pad, 0, y + barHeight + pad)
+        shell.addColorStop(0, "#39415c")
+        shell.addColorStop(0.5, "#191f31")
+        shell.addColorStop(1, "#0b0e18")
+        ctx.fillStyle = shell
+        ctx.fillRect(x - pad, y - pad, barWidth + pad * 2, barHeight + pad * 2)
+        ctx.restore()
+        ctx.strokeStyle = "rgba(0,0,0,0.65)"
+        ctx.lineWidth = Math.max(1, barHeight * 0.08)
+        ctx.strokeRect(x - pad, y - pad, barWidth + pad * 2, barHeight + pad * 2)
+        ctx.fillStyle = "rgba(255,255,255,0.18)"
+        ctx.fillRect(x - pad, y - pad, barWidth + pad * 2, Math.max(1, barHeight * 0.07))
+
+        // Track: near-black well with an inner top shadow
+        ctx.fillStyle = "#05070d"
+        ctx.fillRect(x, y, barWidth, barHeight)
+        const well = ctx.createLinearGradient(0, y, 0, y + barHeight * 0.55)
+        well.addColorStop(0, "rgba(0,0,0,0.6)")
+        well.addColorStop(1, "rgba(0,0,0,0)")
+        ctx.fillStyle = well
+        ctx.fillRect(x, y, barWidth, barHeight * 0.55)
+
+        // Fills, gloss, cells, sweep and flash all stay inside the track
+        ctx.save()
+        ctx.beginPath()
+        ctx.rect(x, y, barWidth, barHeight)
+        ctx.clip()
+
+        for (let i = 0; i < 3; i++) {
+            const frac = fracs[i]
+            if (frac <= 0) continue
+            const base = colors[i % colors.length]
+            const fx0 = x + i * segWidth
+            const fw = segWidth * frac
+            ctx.fillStyle = base
+            ctx.fillRect(fx0, y, fw, barHeight)
+            // Arcade gloss: bright cap on the top half, weight on the bottom
+            // Arcade gloss. The top highlight is deliberately lighter than a classic glass bevel:
+            // at 0.55 white it washed the segment colours out to pastel, which defeated the point
+            // of a saturated palette. The dark weight underneath does most of the shaping instead.
+            const gloss = ctx.createLinearGradient(0, y, 0, y + barHeight)
+            gloss.addColorStop(0, "rgba(255,255,255,0.30)")
+            gloss.addColorStop(0.42, "rgba(255,255,255,0.07)")
+            gloss.addColorStop(0.55, "rgba(255,255,255,0)")
+            gloss.addColorStop(1, "rgba(0,0,0,0.38)")
+            ctx.fillStyle = gloss
+            ctx.fillRect(fx0, y, fw, barHeight)
+            // Near-full pulse: the segment breathes as it approaches its boundary
+            if (frac > 0.92 && frac < 1) {
+                ctx.fillStyle = `rgba(255,255,255,${0.07 + 0.09 * pulse01(t, 420)})`
+                ctx.fillRect(fx0, y, fw, barHeight)
+            }
+        }
+
+        // Energy-cell dividers (12 cells; boundaries between phases get studs instead)
+        ctx.fillStyle = "rgba(0,0,0,0.4)"
+        for (let j = 1; j < 12; j++) {
+            if (j % 4 === 0) continue
+            ctx.fillRect(x + (barWidth / 12) * j - barHeight * 0.035, y, Math.max(1, barHeight * 0.07), barHeight)
+        }
+
+        // Travelling shine: a soft diagonal band sweeping the filled portion
+        if (displayScore > 0) {
+            const sweepX = x + ((t % 2600) / 2600) * (barWidth + barHeight * 4) - barHeight * 2
+            const shine = ctx.createLinearGradient(sweepX - barHeight * 1.4, 0, sweepX + barHeight * 1.4, 0)
+            shine.addColorStop(0, "rgba(255,255,255,0)")
+            shine.addColorStop(0.5, "rgba(255,255,255,0.22)")
+            shine.addColorStop(1, "rgba(255,255,255,0)")
+            ctx.fillStyle = shine
+            for (let i = 0; i < 3; i++) {
+                if (fracs[i] > 0) ctx.fillRect(x + i * segWidth, y, segWidth * fracs[i], barHeight)
+            }
+        }
+
+        // Hot leading edge: a seam marking the fill position, with a glow bloom behind it.
+        // Bloom, seam and flicker depth all scale with `charging`, so at rest this is a calm
+        // position marker and it only turns white-hot while points are landing. The seam
+        // keeps a floor of its own: it is the one part that carries information (where the
+        // fill has reached) and has to stay legible on a bar nobody is feeding.
+        if (tipX !== null && displayScore < bounds[2] - 0.5) {
+            const flickerDepth = 0.08 + 0.27 * charging
+            const flicker = 1 - flickerDepth + flickerDepth * Math.sin(t / 70)
+            const bloom = (0.12 + 0.38 * charging) * flicker
+            const seam = (0.4 + 0.45 * charging) * flicker
+            const glow = ctx.createRadialGradient(tipX, yMid, 0, tipX, yMid, barHeight * 1.5)
+            glow.addColorStop(0, `rgba(255,240,200,${bloom})`)
+            glow.addColorStop(1, "rgba(255,240,200,0)")
+            ctx.fillStyle = glow
+            ctx.fillRect(tipX - barHeight * 1.5, y, barHeight * 3, barHeight)
+            ctx.fillStyle = `rgba(255,255,255,${seam})`
+            ctx.fillRect(tipX - Math.max(1, barHeight * 0.06), y, Math.max(2, barHeight * 0.12), barHeight)
+        }
+
+        // Segment-clear flash: white surge fading out over the whole bar
+        if (t < fx.flashUntil) {
+            const rem = (fx.flashUntil - t) / 520
+            ctx.fillStyle = `rgba(255,255,255,${0.55 * rem * rem})`
+            ctx.fillRect(x, y, barWidth, barHeight)
+        }
+        ctx.restore() // un-clip
+
+        // Phase-boundary studs: diamond rivets that ignite once their segment is cleared
+        for (let i = 1; i < 3; i++) {
+            const px = x + i * segWidth
+            const lit = displayScore >= bounds[i - 1] - 0.5 && bounds[i - 1] > 0
+            const s = barHeight * 0.42
+            ctx.save()
+            ctx.translate(px, yMid)
+            ctx.rotate(Math.PI / 4)
+            if (lit) {
+                // Halved: a stud stays lit for the rest of the level, so its glow is
+                // permanent and was carrying much of the bar's resting brightness.
+                ctx.shadowColor = THEME.accent
+                ctx.shadowBlur = barHeight * 0.45
+            }
+            ctx.fillStyle = lit ? THEME.accent : "#0a0d18"
+            ctx.fillRect(-s / 2, -s / 2, s, s)
+            ctx.shadowColor = "transparent"
+            ctx.strokeStyle = lit ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.3)"
+            ctx.lineWidth = Math.max(1, barHeight * 0.06)
+            ctx.strokeRect(-s / 2, -s / 2, s, s)
+            ctx.restore()
+        }
+        ctx.restore() // un-shear
+
+        // Shockwave ring on segment clear (drawn unsheared so it stays circular)
+        if (t < fx.flashUntil) {
+            const p = 1 - (fx.flashUntil - t) / 520
+            ctx.save()
+            ctx.strokeStyle = THEME.accent
+            ctx.globalAlpha = (1 - p) * 0.9
+            ctx.lineWidth = Math.max(1.5, barHeight * 0.12 * (1 - p))
+            ctx.beginPath()
+            ctx.arc(fx.flashX, yMid, barHeight * (0.4 + 2.8 * easeOutCubic(p)), 0, Math.PI * 2)
+            ctx.stroke()
+            ctx.restore()
+        }
+
+        // Charging sparks: embers fly off the leading edge while the fill is catching up
+        if (tipX !== null && state.score - displayScore > 1 && fx.sparks.length < 60) {
+            const n = 1 + Math.floor(Math.random() * 2)
+            for (let i = 0; i < n; i++) {
+                const roll = Math.random() // mostly gold embers, with white and cyan glints mixed in
+                const sparkColor = roll < 0.55 ? THEME.accent : roll < 0.82 ? "#ffffff" : THEME.accentCyan
+                fx.sparks.push({
+                    x: tipX,
+                    y: yMid + (Math.random() - 0.5) * barHeight * 0.8,
+                    vx: (Math.random() * 1.6 + 0.4) * (Math.random() < 0.8 ? 1 : -0.4) * (barHeight * 0.06),
+                    vy: -(Math.random() * 1.4 + 0.3) * (barHeight * 0.06),
+                    size: Math.max(1.5, (Math.random() * 0.5 + 0.3) * barHeight * 0.22),
+                    life: Math.random() * 22 + 16,
+                    maxLife: 38,
+                    color: sparkColor,
+                })
+            }
+        }
+        if (fx.sparks.length) {
+            ctx.save()
+            for (let i = fx.sparks.length - 1; i >= 0; i--) {
+                const s = fx.sparks[i]
+                s.x += s.vx
+                s.y += s.vy
+                s.vy += barHeight * 0.004 // light gravity
+                s.life -= 1
+                if (s.life <= 0) {
+                    fx.sparks.splice(i, 1)
+                    continue
+                }
+                ctx.globalAlpha = Math.max(0, s.life / s.maxLife)
+                ctx.fillStyle = s.color
+                ctx.fillRect(s.x - s.size / 2, s.y - s.size / 2, s.size, s.size)
+            }
+            ctx.restore()
+        }
     },
     // Compute dynamic style (color, fontSize) for score delta text.
     computeScoreFeedbackStyle(points, minScore, maxScore, baseFontPx) {
@@ -446,7 +1176,8 @@ export const DoggoNogoCore = {
         }
         return { color, fontSize }
     },
-    // Draw score feedback (delta) to the right of the progress bar.
+    // Draw score feedback (delta) to the right of the progress bar: pops in with a small
+    // overshoot, floats upward and fades out. Purely visual.
     drawScoreFeedback(level, opts = {}) {
         if (!level || !level.state || !level.state.scoreTextVisible) return
         const canvas = level.state.canvas
@@ -462,11 +1193,27 @@ export const DoggoNogoCore = {
         const minScore = level.params ? level.params.minScore : 0
         const maxScore = level.params ? level.params.maxScore : minScore + 1
         const { color, fontSize } = this.computeScoreFeedbackStyle(points, minScore, maxScore, baseFontPx)
+
+        const now = typeof level.state.frameTime === "number" && level.state.frameTime ? level.state.frameTime : level.now ? level.now() : Date.now()
+        const shownAt = level.state.scoreTextShownAt || now
+        const elapsed = Math.max(0, now - shownAt)
+        const life = 1000
+        const t = Math.min(1, elapsed / life)
+        const pop = easeOutBack(Math.min(1, elapsed / 200))
+        const alpha = t < 0.65 ? 1 : 1 - (t - 0.65) / 0.35
+        const rise = easeOutCubic(t) * barHeight * 1.1
+
+        ctx.save()
+        ctx.globalAlpha = Math.max(0, alpha)
         ctx.fillStyle = color
-        ctx.font = `${fontSize}px Arial`
+        ctx.font = `800 ${Math.round(fontSize * pop)}px ${THEME.display}`
         ctx.textAlign = "left"
-        const textY = barY + barHeight * 0.75
+        ctx.shadowColor = "rgba(0,0,0,0.75)"
+        ctx.shadowBlur = fontSize * 0.2
+        ctx.shadowOffsetY = fontSize * 0.05
+        const textY = barY + barHeight * 0.75 - rise
         ctx.fillText(level.state.scoreText, textX, textY)
+        ctx.restore()
     },
     // Particle helpers
     createParticles(level, x, y, count, config = {}) {
@@ -635,6 +1382,8 @@ export const DoggoNogoCore = {
         if (!levelObj || !levelObj.state) return
         levelObj.state.scoreText = text
         levelObj.state.scoreTextVisible = true
+        // Timestamp drives the pop/rise/fade animation in drawScoreFeedback.
+        levelObj.state.scoreTextShownAt = levelObj.now ? levelObj.now() : Date.now()
         if (levelObj.state.scoreTextTimeout) clearTimeout(levelObj.state.scoreTextTimeout)
         levelObj.state.scoreTextTimeout = setTimeout(() => {
             levelObj.state.scoreTextVisible = false

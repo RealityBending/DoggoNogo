@@ -35,11 +35,11 @@ The app is a pure client-side HTML5 application with no build step and no depend
 | `game/assets.js` | Asset manifest (`DoggoNogoAssets`) consumed by the global preloader |
 | `game/game.js` | Shared UI helpers: score-screen animation, `zScoreToQuantile`, loading screen, asset preloader (`DoggoNogoCore`), trial-type constants, end-of-level `computeIES` |
 | `game/core.js` | `DoggoNogoBaseLevel`: shared level mechanics (player physics, rendering scaffolding, phase progression, scoring helpers, input plumbing) that each level inherits via its prototype |
-| `game/engine.js` | Central `DoggoNogoEngine` — orchestrates asset loading, cover screen, intro sequence, instruction screen, `requestAnimationFrame` game loop, marker (photodiode) support, and the end-of-level score screen |
-| `game/intro.js` | `IntroRunner` — a generic step-sequenced cutscene player (fill / text / image / sound / wait steps) plus inline intro-asset loader |
+| `game/engine.js` | Central `DoggoNogoEngine` — orchestrates asset loading, cover screen, cutscene, instruction screen, `requestAnimationFrame` game loop, marker (photodiode) support, and the end-of-level score screen |
+| `game/cutscene.js` | `CutsceneRunner` — a generic step-sequenced cutscene player (fill / text / image / sound / wait steps) plus inline cutscene-asset loader |
 | `game/levels/level1.js` | All logic for Level 1 (Simple RT) as a single self-contained `level1` object |
 | `game/levels/level2.js` | All logic for Level 2 (Simon task) as a single self-contained `level2` object |
-| `game/levels/intro.js` | Level-1 intro cutscene sequence definition |
+| `game/levels/cutscenes.js` | Level 1 and Level 2 cutscene sequence definitions |
 | `game/jspsych.js` | Thin jsPsych integration layer: creates `jsPsychCallFunction` trials, manages canvas lifecycle inside the jsPsych display element, and serialises per-trial data back into jsPsych's data store |
 | `game/index.html` | Standalone entry point |
 | `example_jspsych.html` | Minimal jsPsych integration example |
@@ -58,7 +58,7 @@ Responses are classified as:
 - **Fast** (RT ≤ adaptive threshold): rewarded with scaled points (100–200).
 - **Slow** (RT > threshold but before timeout): rewarded with 0 bonus points.
 - **Early** (key pressed before stimulus): penalised (−minScore), recorded as a commission error reflecting response inhibition failure.
-- **Timeout** (no response within 2 × median RT): 0 points.
+- **Timeout** (no response within 2 × median RT): 0 points. A key pressed shortly after the window closes (within 500 ms, i.e. during or just after the stimulus fades out) is treated as the belated answer to that trial and ignored, rather than being scored as an early press on the next one.
 
 The adaptive **median RT threshold** (initialised at 1 000 ms, updated after every valid trial using a running median) serves a dual purpose: it provides an individually-tailored difficulty parameter so the task remains challenging regardless of baseline speed, and it functions as the decision criterion separating fast from slow trials. The parameter `gameDifficulty` (default 1) divides the median to shift this threshold (> 1 makes it easier; < 1 makes it harder).
 
@@ -110,8 +110,29 @@ Level 2 shares the same object interface and engine as Level 1 but adds the foll
 - **Phase instructions**: Each inter-phase break overlay shows phase-specific instructional text (e.g., introducing vertical spawns in Phase 2) so participants understand the evolving task rules.
 - **Data log fields** (per trial): `RT`, `TrialType`, `Error`, `Points`, `Score`, `Phase`, `StimulusRegion` (`"left"/"right"/"top"/"bottom"`), `StimulusDifficulty` (`"congruent"/"neutral"/"incongruent"`), `ResponseKey`, `Threshold`, `ISI`.
 
-**Potential improvements**
+### Potential improvements
 
 - **Control Pre-Trial Sequential Carryover Effects (Gratton Effect)** :Conflict tasks exhibit strong sequential dependencies: the Simon effect is significantly reduced following an incongruent trial compared to a congruent trial. We should implement a control of trial randomization by using pseudo-random Latin squares or counterbalancing transition matrices so that the proportion of congruent-after-congruent, incongruent-after-congruent, congruent-after-incongruent, and incongruent-after-incongruent pairs are balanced. 
 - **Counterbalance Stimulus Feature Transitions (Negative Priming / Feature Binding)**: When stimulus direction or location repeats or partially alternates across consecutive trials (e.g., left fish on left $\to$ left fish on right), episodic retrieval and feature-binding costs distort reaction times.
 
+### Illusion levels (3–5): character evolution
+
+Doggo's phase evolutions across the illusion arc are about perception rather than growth, and each level's sheet continues the previous one (sprite prompts in `prompts/make_prompts.py`, steps 6–7):
+
+- **Level 3 (vertical–horizontal)**: derpy Doggo → interrogating pose → razor-sharp sniffing-dog stance.
+- **Level 4 (Müller-Lyer)**: sharp Doggo → red ribbon bandana around the neck → a second ribbon as a ninja-style headband (Nogo's ribbons claimed as trophies).
+- **Level 5 (Ebbinghaus)**: bandana Doggo → half-finished hand-knitted top (one sleeve missing, needle still in) → finished knitted jumper, made from Nogo's defeated yarn.
+
+**Parked alternative**: instead of (or in addition to) evolving Doggo, show Nogo's face in a top corner of the HUD and have *him* degrade comically at each phase break — increasingly dishevelled, ribbon-tangled, and finally rolled up in his own yarn. More screen furniture and one more art set per level, but it would make the villain's defeat the progress signal; worth revisiting once the arc has final art.
+
+### Future Levels
+
+Go/No-go: Doggo needs to be trained to receive his badge. He gets a collar with a medal at the end of it.
+
+### Adaptive Design
+
+- Kianté
+- https://pubmed.ncbi.nlm.nih.gov/36805245/
+- https://github.com/jspsych/jspsych-ado
+- https://pmc.ncbi.nlm.nih.gov/articles/PMC3755632/
+- https://www.sciencedirect.com/science/article/abs/pii/S245190222200338X?via%3Dihub

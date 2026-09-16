@@ -15,7 +15,7 @@ no npm, no transpile step**. Serve the repo over HTTP and open the entry point i
 
 | Entry | File | Notes |
 |---|---|---|
-| Standalone | `game/index.html` | Sizes the canvas and runs the `LEVELS` chain (L1 → L2 → L3) from an inline `<script type="module">`. |
+| Standalone | `game/index.html` | Sizes the canvas and runs the `LEVELS` chain (L1 → L2 → L3 → L4 → L5) from an inline `<script type="module">`. |
 | jsPsych embed | `example_jspsych.html` | Minimal example using the `DoggoNogo` integration object. |
 | jsPsych API | `game/jspsych.js` | `DoggoNogo.level1(opts)` / `DoggoNogo.level2(opts)` build jsPsych trials; both need the instance from `initJsPsych()` passed as `opts.jsPsych`. |
 
@@ -23,15 +23,19 @@ no npm, no transpile step**. Serve the repo over HTTP and open the entry point i
 
 | File | Exports | Responsibility |
 |---|---|---|
-| `game/engine.js` | `DoggoNogoEngine` | Orchestrator: asset preload, cover screen, intro, instruction screen, `requestAnimationFrame` loop, marker (photodiode) flash, end-of-level score screen. |
+| `game/engine.js` | `DoggoNogoEngine` | Orchestrator: asset preload, cover screen, cutscene, instruction screen, `requestAnimationFrame` loop, marker (photodiode) flash, end-of-level score screen. |
 | `game/assets.js` | `DoggoNogoAssets` | Asset manifest consumed by `DoggoNogoCore.preloadAll`. |
 | `game/game.js` | `DoggoNogoUI`, `DoggoNogoCore`, `DoggoNogoTrialTypes` | Shared UI (score screen, loading, `zScoreToQuantile`) + shared mechanics in `DoggoNogoCore` (progress bar, particles, feedback bubbles, tinted sprites, median, timers, `computeIES`). |
+| `game/stimuli.js` | `DoggoNogoStimuli` | Task stimuli, traced in code (bone, fishbone) plus the `*Box` helpers that make a stimulus fill its logged box. No level loads a stimulus image. |
 | `game/core.js` | `DoggoNogoBaseLevel` | Shared **level** logic (player physics, render scaffolding, phase progression, scoring helpers, input plumbing). Concrete levels set it as their prototype. |
-| `game/intro.js` | `IntroRunner`, `DoggoNogoIntroAssets` | Generic step-sequenced cutscene player (`fill`/`text`/`image`/`sound`/`wait`). |
+| `game/cutscene.js` | `CutsceneRunner`, `DoggoNogoCutsceneAssets` | Generic step-sequenced cutscene player (`fill`/`text`/`image`/`sound`/`wait`). |
 | `game/levels/level1.js` | `level1` | Simple RT task. Inherits `DoggoNogoBaseLevel`; defines only level-1 specifics. |
 | `game/levels/level2.js` | `level2` | Simon task. Inherits `DoggoNogoBaseLevel`; defines only level-2 specifics. |
-| `game/levels/level3.js` | `level3` | Barebones two-choice RT placeholder (grey background, bone left/right). Borrows Level 1 assets; standalone-only for now (no jsPsych wrapper). |
-| `game/levels/intro.js` | `level1IntroSequence`, `level2IntroSequence` | Cutscene step definitions consumed by `IntroRunner`. |
+| `game/levels/illusion.js` | `DoggoNogoIllusionLevel`, `illusionDefaultParams`, `borrowedLevel1Assets` | Shared logic for the illusion levels (3–5): the 2AFC size-comparison task ported from the Illusion Game, the two signed per-trial parameters (`TaskDifficulty` = objective difference, sign → correct side; `IllusionStrength` = illusion magnitude, sign → congruent −/incongruent +), the 3-phase difficulty/strength ramp, and the shared instruction screen (on the base's animated frame; each level supplies `instructionTitle`, `instructionLines` and a `drawInstructionDemo` laid out at x = 0.3 / 0.7). Sits between `DoggoNogoBaseLevel` and the concrete levels; see its header for the per-level hooks. |
+| `game/levels/level3.js` | `level3` | Vertical–horizontal illusion (tilted vs horizontal bone). Inherits `DoggoNogoIllusionLevel`; standalone-only for now (no jsPsych wrapper). |
+| `game/levels/level4.js` | `level4` | Müller-Lyer illusion (ribbon blades at the bone tips, drawn behind the bone). Inherits `DoggoNogoIllusionLevel`; standalone-only for now. |
+| `game/levels/level5.js` | `level5` | Ebbinghaus illusion (target discs in rings of context discs; geometry ported from Pyllusion — note its `TaskDifficulty` is an AREA proportion, unlike the length proportions of L3/L4). Plain circles pending assets/narrative. Inherits `DoggoNogoIllusionLevel`; standalone-only for now. |
+| `game/levels/cutscenes.js` | `level1Cutscene` … `level5Cutscene` | Cutscene step definitions consumed by `CutsceneRunner`. Levels 3–5 are tentative: minimal text with `[ ART: ... ]` text steps standing in for artwork to be made. |
 | `game/jspsych.js` | `DoggoNogo` | jsPsych integration: builds the call-function trials that run a level. |
 
 ## The level interface (contract)
@@ -54,7 +58,13 @@ handleResize()                                  // recompute sprite sizes/positi
 getPhaseTargets() -> [n,n,n]                     // used by the shared progress bar
 startKeys -> string[]                            // keys that start the level (engine.waitForStart)
 isResponseKey(key) -> bool                       // which keys count as responses (base, from startKeys)
+getStimulusAspectImage() -> {naturalWidth, naturalHeight}  // stimulus box aspect ratio
 ```
+
+Only the *ratio* of `getStimulusAspectImage()` is read. Every level draws its stimulus procedurally
+and returns its declared proportions as a plain object; the base's sprite fallback exists for a level
+that blits one, but a sprite's box is its bounding box including transparent padding, so
+`params.stimulusHeight` would then size the padding rather than the stimulus.
 
 ### Adding a new level (e.g. Stop-signal / Go-NoGo / Stroop)
 
@@ -69,6 +79,37 @@ isResponseKey(key) -> bool                       // which keys count as response
    wrapper in `game/jspsych.js`.
 4. Define `computePhaseTarget(i)` — the base's `getPhaseTargets`/`ensurePhaseTarget` build on it
    (Level 1 = adaptive, Level 2 = fixed). Only override those two for a genuinely different strategy.
+5. Draw the stimulus, don't blit it: add its shape to `game/stimuli.js`, override
+   `getStimulusAspectImage()` with its aspect ratio, and derive the draw geometry from the current
+   box height on every frame so a resize and the catch animation both stay proportional. The
+   rationale (extent, contrast, redundant cues) is in that file's header.
+
+### UI / visual layer
+
+All "juice" (screens, overlays, HUD) shares one visual language defined in `game/game.js`:
+`DoggoNogoUI.theme` (colors/fonts) and `DoggoNogoUI.fx` (canvas helpers: `drawPanel`,
+`drawKeycap`, `drawPromptRow`, `drawGlowText`, `drawVignette`, easing, `pulse01`). Instruction
+screens are **animated**: a level's `showInstructionScreen(canvas)` calls
+`this.runInstructionScreen(canvas, config)` (base, `core.js`), which runs a private rAF loop
+drawing `drawInstructionFrame` (badge pill, title, instruction panel, per-level
+`config.drawVisual`, pulsing prompt). `beginLevel()` cancels that loop via
+`cancelInstructionScreen()` — any new screen animated outside the game loop must likewise be
+cancelled before gameplay draws. The progress bar smooths its fill via `state._barDisplayScore`
+and the score delta animates from `state.scoreTextShownAt` — both visual-only; scoring is
+untouched. The end-of-level `DoggoNogoUI.showScoreScreen` loops indefinitely (confetti/pulse)
+until `cancelScoreScreen()`. Title-style text goes through a sprite cache in `game.js`
+(`getTextSprite`): glow text is rasterized once per (text, size, style) and blitted per frame —
+animate its size with `opts.scale`, never by varying `px` per frame (that defeats the cache and
+re-shapes the font every frame, which is what made the phase banner stutter).
+
+Cutscene input (`cutscene.js`): tapping SPACE (release before ~800 ms) advances one step
+(`advanceStep`: bumps `stepSeq` to kill the running step animation; `nextStep()` runs
+`_commitCurrent` to lock in a mid-fade image/text — this commit also covers natural advancement,
+where the step timer routinely beats the fade's last frame); holding SPACE charges the ghost
+"SPACE to skip" button in the bottom letterbox bar and skips the whole cutscene. The engine option `browserFullscreen: true` (set by
+`game/index.html`) requests browser fullscreen on the cover screen's SPACE press. The
+end-of-level "View data (JSON)" button (`engine._showDataButton`) is **temporary** scaffolding
+for auditing the data schema — remove once the schema is settled.
 
 Useful base override hooks: `updateStimulusMotion()`, `getBreakOverlayLines()`,
 `getStimulusAspectImage()`, `endOverlayTitle`, plus standardized flash fields
@@ -85,7 +126,7 @@ index.html / jspsych.js
        ├─ level.load()                       (level-specific assets; reports progress)
        ├─ background-preload otherLevels     (so transitions are instant; reports progress)
        ├─ showCoverScreen()                  (SPACE to start; first user gesture for audio)
-       ├─ IntroRunner.run()                  (optional cutscene)
+       ├─ CutsceneRunner.run()                  (optional cutscene)
        ├─ level.showInstructionScreen()
        ├─ waitForStart()                     (level-specific start key)
        ├─ level.start(canvas, endCallback)
@@ -97,7 +138,7 @@ index.html / jspsych.js
 
 - **Native ES modules.** Every file declares its dependencies with `import` and its API with
   `export`, so the module graph fixes load order and the HTML entry points import only what they
-  run. Dependency direction is `assets.js` → `game.js` → `core.js`/`intro.js` → `engine.js` →
+  run. Dependency direction is `assets.js` → `game.js` → `core.js`/`cutscene.js` → `engine.js` →
   levels → `jspsych.js`; keep it acyclic (the engine takes levels as data via `otherLevels`, it
   never imports them).
 - **Shared level logic lives in `core.js` (`DoggoNogoBaseLevel`)**; shared non-level helpers live in
@@ -114,6 +155,13 @@ index.html / jspsych.js
   then stamps `state.startTime` with the *following* frame's timestamp — the frame that actually
   puts it on screen. RT is `eventTime(e) - startTime`, both on the same clock. Per-frame animation
   should read `state.frameTime`, not `now()`.
+- **A press just after a timeout is not an early press.** When the response window closes,
+  `updateTrialSchedule()` stamps `state.responseWindowClosedAt`; a response key arriving within
+  `params.lateResponseGrace` ms of it (default 500, below the ISI floor) is the belated answer to
+  the trial that just timed out, and every level's `handleKeyDown` ignores it via the base
+  `isBelatedResponse(e)` *before* its early-press branch. Without that check the press was logged
+  as `Early` (with the penalty) for the *next* trial — common in Levels 3–5, where a perceptual
+  comparison can outlast the `2 × median RT` window.
 - **Clocks.** requestAnimationFrame timestamps and `event.timeStamp` are on the performance clock;
   `now()` may be the jsPsych clock. `state.clockOffset` (set once per run in `beginLevel()`)
   converts between them — apply it to any raw timestamp before comparing it with level time.
@@ -155,7 +203,7 @@ index.html / jspsych.js
   targets are cached (`state.phaseTargetsCache`) because the progress bar reads them every frame —
   write them through `setPhaseTarget`/`setPhaseTargets`, never straight into `phaseRequiredScores`.
 - Level objects are module exports, not globals; the only deliberate globals are the debug data
-  logs (`window.level1Data` / `window.level2Data`).
+  logs (`window.level1Data` … `window.level5Data`).
 - Embedded in jsPsych, the instance is passed in explicitly (`DoggoNogo.level1({ jsPsych })` →
   engine → `level.jsPsych`). Don't reach for a global `jsPsych`: under jsPsych 8 that name resolves
   to a deprecation shim rather than the instance.
@@ -171,12 +219,12 @@ python -m http.server 8000
 ```
 
 To work on a later level without playing through the earlier ones, append `?level=N` to that URL
-(`?level=3` starts at Level 3, cover screen included). `START_LEVEL` in `game/index.html` is the
+(`?level=4` starts at Level 4, cover screen included). `START_LEVEL` in `game/index.html` is the
 same switch without the query string; opening the page with no `level` param applies it and writes
-it into the address bar. **`START_LEVEL` is currently 3 while Level 3 is being built — set it back
-to 1 before shipping.**
+it into the address bar. **`START_LEVEL` is currently 3 while the illusion levels are being built —
+set it back to 1 before shipping.**
 
 There is no automated test suite; verification is manual (play through the levels, check
-`window.level1Data` / `window.level2Data` / `window.level3Data` in the console for the data log).
+`window.level1Data` … `window.level5Data` in the console for the data log).
 
 

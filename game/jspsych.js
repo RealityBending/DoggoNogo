@@ -7,7 +7,7 @@
 import { DoggoNogoEngine } from "./engine.js"
 import { level1 } from "./levels/level1.js"
 import { level2 } from "./levels/level2.js"
-import { level1IntroSequence, level2IntroSequence } from "./levels/intro.js"
+import { level1Cutscene, level2Cutscene } from "./levels/cutscenes.js"
 
 function normalizeBasePath(p) {
     if (!p) return ""
@@ -46,6 +46,10 @@ export const DoggoNogo = {
         assetBasePath = "game/assets/",
         levelGetter = () => level1,
         trialsNumber,
+        cutscene = null,
+        // Back-compat: this option was `introSequence` before the intro -> cutscene rename. An
+        // unrecognised option would just be dropped, so an experiment script still passing the old
+        // name would silently run with no cutscene and nothing to explain why - hence the alias.
         introSequence = null,
         skipCover = false,
         markerEnabled = false,
@@ -54,6 +58,10 @@ export const DoggoNogo = {
         fullscreen = false,
         initialFillColor = "#000", // color painted immediately to avoid a white flash while assets load
     } = {}) {
+        if (introSequence && !cutscene) {
+            console.warn("DoggoNogo: the `introSequence` option is now called `cutscene`; using it anyway.")
+            cutscene = introSequence
+        }
         return {
             type: jsPsychCallFunction,
             async: true,
@@ -122,7 +130,7 @@ export const DoggoNogo = {
                     assetBasePath: normalizeBasePath(assetBasePath),
                     levelParams: { trialsNumber },
                     continueHint: "Press SPACE to continue",
-                    introSequence,
+                    cutscene,
                     skipCover,
                     otherLevels: [level1, level2],
                     jsPsych,
@@ -131,12 +139,11 @@ export const DoggoNogo = {
                     markerSize,
                     fullscreen,
                     onFinish: (finalState) => {
-                        // Data to be saved by jsPsych
+                        // Data to be saved by jsPsych. Total score and trials presented live
+                        // inside `performance` (see engine.js) rather than as singleton entries.
                         const trialData = {
                             reaction_times: finalState.reactionTimes,
                             data_log: finalState.data,
-                            total_score: finalState.score,
-                            trials_presented: finalState.trials,
                             phases_completed: finalState.phaseIndex + 1,
                             game_params: finalState.gameParams || null,
                             performance: finalState.performance || null,
@@ -183,7 +190,7 @@ export const DoggoNogo = {
                 maintainAspect,
                 assetBasePath: normalizeBasePath(assetBasePath),
                 trialsNumber,
-                introSequence: level1IntroSequence,
+                cutscene: level1Cutscene,
                 skipCover: !showCover,
                 markerEnabled,
                 markerFlashDuration,
@@ -215,7 +222,7 @@ export const DoggoNogo = {
                 assetBasePath: normalizeBasePath(assetBasePath),
                 trialsNumber,
                 levelGetter: () => level2,
-                introSequence: level2IntroSequence,
+                cutscene: level2Cutscene,
                 skipCover: !showCover,
                 markerEnabled,
                 markerFlashDuration,

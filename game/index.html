@@ -15,13 +15,18 @@
                 justify-content: center;
                 align-items: center;
                 min-height: 100vh;
-                background-color: #f0f0f0;
+                /* Dark stage so the canvas reads like a theatre screen, not a form element */
+                background: radial-gradient(ellipse at 50% 35%, #182036 0%, #0c101d 55%, #070a12 100%);
             }
             #canvasWrapper {
                 position: relative;
             }
             canvas {
-                border: 1px solid black;
+                border: none;
+                border-radius: 14px;
+                box-shadow:
+                    0 0 0 1px rgba(255, 255, 255, 0.08),
+                    0 24px 80px rgba(0, 0, 0, 0.65);
                 background-color: #000;
                 display: block;
                 width: 100%; /* CSS size; actual drawing buffer set in JS */
@@ -38,14 +43,16 @@
         <!-- STANDALONE VERSION OF THE GAME -->
 
         <script type="module">
-            // Entry point for the standalone game: size the canvas, then run levels 1 -> 2 -> 3
+            // Entry point for the standalone game: size the canvas, then run levels 1 -> 2 -> 3 -> 4 -> 5
             // (or start partway through the chain -- see LEVELS / START_LEVEL below).
             import { DoggoNogoCore } from "./game.js"
             import { DoggoNogoEngine } from "./engine.js"
             import { level1 } from "./levels/level1.js"
             import { level2 } from "./levels/level2.js"
             import { level3 } from "./levels/level3.js"
-            import { level1IntroSequence, level2IntroSequence } from "./levels/intro.js"
+            import { level4 } from "./levels/level4.js"
+            import { level5 } from "./levels/level5.js"
+            import { level1Cutscene, level2Cutscene, level3Cutscene, level4Cutscene, level5Cutscene } from "./levels/cutscenes.js"
 
             const TARGET_W = 1792
             const TARGET_H = 1024
@@ -60,11 +67,12 @@
                 const BORDER = 2
                 const maxW = document.documentElement.clientWidth - BORDER
                 const maxH = document.documentElement.clientHeight - BORDER
-                // Constrain by width first
-                let w = Math.min(TARGET_W, maxW)
+                // Fill the window (no 1792/1024 cap), preserving the design aspect ratio;
+                // the dark page background letterboxes whatever the aspect leaves over.
+                let w = maxW
                 let h = Math.round(w / ASPECT)
                 if (h > maxH) {
-                    h = Math.min(TARGET_H, maxH)
+                    h = maxH
                     w = Math.round(h * ASPECT)
                 }
                 // Set drawing buffer (for crisp rendering)
@@ -92,11 +100,13 @@
             // page with no `level` param writes START_LEVEL into the URL). The chosen level shows
             // the cover screen and later ones follow it as usual.
             const LEVELS = [
-                { level: level1, introSequence: level1IntroSequence },
-                { level: level2, introSequence: level2IntroSequence },
-                { level: level3, introSequence: null },
+                { level: level1, cutscene: level1Cutscene },
+                { level: level2, cutscene: level2Cutscene },
+                { level: level3, cutscene: level3Cutscene },
+                { level: level4, cutscene: level4Cutscene },
+                { level: level5, cutscene: level5Cutscene },
             ]
-            // TEMPORARY (testing Level 3): set back to 1 to play the game from the start.
+            // TEMPORARY (testing the illusion levels): set back to 1 to play the game from the start.
             const START_LEVEL = 3 // 1-based; overridden by ?level=N
 
             function resolveStartIndex() {
@@ -119,11 +129,13 @@
             const startIndex = resolveStartIndex()
 
             function runLevel(index) {
-                const { level, introSequence } = LEVELS[index]
+                const { level, cutscene } = LEVELS[index]
                 const isLast = index === LEVELS.length - 1
                 DoggoNogoEngine.run(canvas, level, {
                     assetBasePath: "assets/",
-                    introSequence,
+                    // Ask for browser fullscreen on the cover screen's SPACE press.
+                    browserFullscreen: true,
+                    cutscene,
                     // The cover belongs to the first level actually shown; chained ones go straight
                     // to their instruction screen.
                     skipCover: index !== startIndex,

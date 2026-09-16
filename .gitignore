@@ -123,3 +123,8 @@ po/*~
 rsconnect/
 .DS_Store
 /literature
+
+# Python
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/

@@ -6,6 +6,12 @@
             "runtimeExecutable": "python",
             "runtimeArgs": ["-m", "http.server", "8123", "--directory", "."],
             "port": 8123
+        },
+        {
+            "name": "game-8124",
+            "runtimeExecutable": "python",
+            "runtimeArgs": ["-m", "http.server", "8124", "--directory", "."],
+            "port": 8124
         }
     ]
 }

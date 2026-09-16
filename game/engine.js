@@ -4,7 +4,7 @@
  */
 
 import { DoggoNogoCore, DoggoNogoUI } from "./game.js"
-import { IntroRunner, DoggoNogoIntroAssets } from "./intro.js"
+import { CutsceneRunner, DoggoNogoCutsceneAssets } from "./cutscene.js"
 
 // One-time preload flags, shared by every run in the page.
 let globalPreloaded = false
@@ -26,7 +26,7 @@ export const DoggoNogoEngine = {
         const {
             onFinish,
             levelParams,
-            introSequence,
+            cutscene,
             skipCover,
             // Levels to load in the background once this one is ready, so later transitions
             // have zero load time or flashes.
@@ -42,12 +42,16 @@ export const DoggoNogoEngine = {
         this.canvas = canvas
         this.ctx = canvas.getContext("2d")
         this.level = level
+        // Whether the cover screen's SPACE press should request browser fullscreen.
+        this._browserFullscreen = !!options.browserFullscreen
+        // A data button from a previous level's end screen must not survive into this one.
+        this._removeDataButton()
         this.level.jsPsych = jsPsych
         // Levels trigger the marker through this hook rather than reaching for the engine.
         this.level.flashMarker = () => this.flashMarker()
         this.animationFrameId = null
         // The previous level's score animation may still be in flight if the player pressed
-        // "continue" before it finished; left alone it repaints over this level's intro.
+        // "continue" before it finished; left alone it repaints over this level's cutscene.
         DoggoNogoUI.cancelScoreScreen()
         // Marker indicator state (used for external physiological synchronization via photosensor)
         this._marker = {
@@ -149,20 +153,20 @@ export const DoggoNogoEngine = {
                 await this.showCoverScreen()
             }
 
-            // Run intro if it exists (now after a user interaction)
-            if (introSequence) {
-                // Ensure intro-specific assets are loaded
+            // Run the cutscene if it exists (now after a user interaction)
+            if (cutscene) {
+                // Ensure cutscene-specific assets are loaded
                 try {
-                    await DoggoNogoIntroAssets.load(options.assetBasePath)
+                    await DoggoNogoCutsceneAssets.load(options.assetBasePath)
                 } catch (e) {
-                    console.warn("Intro assets failed to load", e)
+                    console.warn("Cutscene assets failed to load", e)
                 }
                 const mergedAssets = Object.assign(
                     {},
                     this.level.assets,
-                    DoggoNogoIntroAssets,
+                    DoggoNogoCutsceneAssets,
                 )
-                await IntroRunner.run(this.canvas, introSequence, mergedAssets, { assetBasePath: options.assetBasePath || "" })
+                await CutsceneRunner.run(this.canvas, cutscene, mergedAssets, { assetBasePath: options.assetBasePath || "" })
             }
 
             // 2. Show instruction screen and wait for user to start
@@ -208,6 +212,8 @@ export const DoggoNogoEngine = {
                             ies,
                             zIES,
                             quantile,
+                            totalScore: state.score ?? null,
+                            trialsPresented: state.trials ?? null,
                         }
                         this.level.state.gameParams = {
                             trialsNumber: this.level.params.trialsNumber,
@@ -229,6 +235,8 @@ export const DoggoNogoEngine = {
                         hint: options.continueHint,
                         playerSprite: this.level.assets.imgPlayer3 || this.level.assets.imgPlayer,
                     })
+                    // TEMPORARY (data inspection): button to open the recorded data as JSON.
+                    this._showDataButton()
                 }
                 if (onFinish) {
                     onFinish(this.level.state)
@@ -247,20 +255,83 @@ export const DoggoNogoEngine = {
         const w = this.canvas.width
         const h = this.canvas.height
         const detail = (error && error.message) || String(error || "Unknown error")
+        const theme = DoggoNogoUI.theme
         ctx.save()
-        ctx.fillStyle = "#111"
+        const bg = ctx.createLinearGradient(0, 0, 0, h)
+        bg.addColorStop(0, theme.bgMid)
+        bg.addColorStop(1, theme.bgDeep)
+        ctx.fillStyle = bg
         ctx.fillRect(0, 0, w, h)
         ctx.textAlign = "center"
-        ctx.fillStyle = "#ff6b6b"
-        ctx.font = `${Math.round(h * 0.045)}px Arial`
+        ctx.fillStyle = theme.bad
+        ctx.font = `700 ${Math.round(h * 0.045)}px ${theme.display}`
         ctx.fillText("The game could not start.", w / 2, h * 0.42)
-        ctx.fillStyle = "#fff"
-        ctx.font = `${Math.round(h * 0.028)}px Arial`
+        ctx.fillStyle = theme.ink
+        ctx.font = `${Math.round(h * 0.028)}px ${theme.font}`
         ctx.fillText(detail, w / 2, h * 0.52)
-        ctx.fillStyle = "#aaa"
-        ctx.font = `${Math.round(h * 0.022)}px Arial`
+        ctx.fillStyle = theme.inkFaint
+        ctx.font = `${Math.round(h * 0.022)}px ${theme.font}`
         ctx.fillText("See the browser console for details.", w / 2, h * 0.6)
         ctx.restore()
+    },
+
+    /**
+     * TEMPORARY (data inspection): overlays a small button on the end-of-level score screen
+     * that opens the recorded data log (plus performance summary and game params) as JSON in
+     * a new tab. Remove once the data schema is settled.
+     */
+    _showDataButton: function () {
+        this._removeDataButton()
+        if (typeof document === "undefined") return
+        const btn = document.createElement("button")
+        btn.textContent = "{ } View data (JSON)"
+        const rect = this.canvas.getBoundingClientRect()
+        Object.assign(btn.style, {
+            position: "fixed",
+            top: `${Math.round(rect.top + 14)}px`,
+            right: `${Math.round(Math.max(8, window.innerWidth - rect.right) + 14)}px`,
+            zIndex: "9999",
+            padding: "8px 14px",
+            borderRadius: "999px",
+            border: "1px solid rgba(255,255,255,0.25)",
+            background: "rgba(9,13,25,0.85)",
+            color: "#ffc857",
+            font: "600 13px 'Segoe UI', Arial, sans-serif",
+            cursor: "pointer",
+        })
+        btn.addEventListener("click", () => {
+            const state = this.level && this.level.state ? this.level.state : {}
+            const payload = {
+                level: state.data && state.data[0] ? state.data[0].Level : null,
+                performance: state.performance || null,
+                gameParams: state.gameParams || null,
+                data: state.data || [],
+            }
+            const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" })
+            const url = URL.createObjectURL(blob)
+            // New tab when the environment allows it; otherwise (popup blocked / embedded
+            // viewer) fall back to downloading the file.
+            const win = window.open(url, "_blank")
+            if (!win) {
+                const a = document.createElement("a")
+                a.href = url
+                a.download = "doggonogo_data.json"
+                a.click()
+            }
+        })
+        document.body.appendChild(btn)
+        this._dataButton = btn
+    },
+
+    _removeDataButton: function () {
+        if (this._dataButton) {
+            try {
+                this._dataButton.remove()
+            } catch (e) {
+                console.debug("Failed to remove data button", e)
+            }
+            this._dataButton = null
+        }
     },
 
     /** Public helper for levels to trigger the marker flash (e.g., on stimulus onset). */
@@ -376,57 +447,129 @@ export const DoggoNogoEngine = {
 }
 
 /**
- * Displays a cover screen (if cover assets loaded) and waits for SPACE key.
- * Ensures at least one user interaction before attempting to play intro audio.
+ * Displays the title screen and waits for SPACE. Cinematic but cheap: a slow Ken Burns
+ * zoom on the cover art, a vignette, drifting fireflies, the title art easing in, and a
+ * pulsing SPACE keycap prompt. SPACE fades to black before resolving, so the cutscene (or
+ * instructions) never pops in abruptly. Also ensures at least one user interaction before
+ * any cutscene audio plays.
  */
 DoggoNogoEngine.showCoverScreen = function () {
     return new Promise((resolve) => {
         const cover = this.level.assets.imgCover
         const coverText = this.level.assets.imgCoverText
         const ctx = this.ctx
-        let alpha = 0
-        const fadeDuration = 800 // ms
+        const canvas = this.canvas
+        const { drawKeycap, drawVignette, drawGlowText, easeOutCubic, pulse01 } = DoggoNogoUI.fx
+        const theme = DoggoNogoUI.theme
         let startTs = null
         let finished = false
+        let exiting = false
+        let exitStart = null
+        const exitDuration = 450 // ms fade-to-black after SPACE
+
+        // Ambient fireflies (normalized coordinates; wrapped every frame).
+        // Mostly warm gold with the odd cool cyan one drifting through.
+        const fireflies = Array.from({ length: 24 }, () => ({
+            x: Math.random(),
+            y: 0.3 + Math.random() * 0.7,
+            r: 0.002 + Math.random() * 0.004,
+            phase: Math.random() * Math.PI * 2,
+            vx: (Math.random() - 0.5) * 0.00002,
+            vy: -(0.000005 + Math.random() * 0.00002),
+            tint: Math.random() < 0.25 ? "150, 225, 255" : "255, 230, 150",
+        }))
 
         const draw = (ts) => {
             if (finished) return
             if (!startTs) startTs = ts
-            const progress = Math.min(1, (ts - startTs) / fadeDuration)
-            alpha = progress
-            ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
-            // Background cover image
+            const t = ts - startTs
+            const w = canvas.width
+            const h = canvas.height
+
+            ctx.fillStyle = "#000"
+            ctx.fillRect(0, 0, w, h)
+
+            // Cover art with a slow settle-in zoom
             if (cover && cover.complete) {
-                ctx.drawImage(cover, 0, 0, this.canvas.width, this.canvas.height)
-            } else {
-                ctx.fillStyle = "black"
-                ctx.fillRect(0, 0, this.canvas.width, this.canvas.height)
+                const zoom = 1.08 - 0.08 * easeOutCubic(t / 7000)
+                const zw = w * zoom
+                const zh = h * zoom
+                ctx.drawImage(cover, (w - zw) / 2, (h - zh) / 2, zw, zh)
             }
-            // Fading text image
+            drawVignette(ctx, w, h, 0.55)
+
+            // Fireflies
+            ctx.save()
+            for (const f of fireflies) {
+                const fx = ((f.x + t * f.vx) % 1 + 1) % 1
+                const fy = ((f.y + t * f.vy) % 1 + 1) % 1
+                const a = 0.25 + 0.4 * (0.5 + 0.5 * Math.sin(t / 700 + f.phase))
+                const rad = f.r * h * 3
+                const g = ctx.createRadialGradient(fx * w, fy * h, 0, fx * w, fy * h, rad)
+                g.addColorStop(0, `rgba(${f.tint}, ${a})`)
+                g.addColorStop(1, `rgba(${f.tint}, 0)`)
+                ctx.fillStyle = g
+                ctx.beginPath()
+                ctx.arc(fx * w, fy * h, rad, 0, Math.PI * 2)
+                ctx.fill()
+            }
+            ctx.restore()
+
+            // Title art: fade + drift up + settle
             if (coverText && coverText.complete) {
+                const p = easeOutCubic(Math.min(1, t / 1100))
+                const scale = 0.97 + 0.03 * p
+                const dw = w * scale
+                const dh = h * scale
                 ctx.save()
-                ctx.globalAlpha = alpha
-                ctx.drawImage(coverText, 0, 0, this.canvas.width, this.canvas.height)
+                ctx.globalAlpha = p
+                ctx.drawImage(coverText, (w - dw) / 2, (h - dh) / 2 + (1 - p) * h * 0.02, dw, dh)
                 ctx.restore()
             }
-            // Prompt (shows when fade nearly done)
-            if (progress > 0.85) {
-                ctx.textAlign = "center"
-                const scale = (this.canvas.width / 1792 + this.canvas.height / 1024) / 2
-                ctx.font = `${Math.round(28 * scale)}px Arial`
-                ctx.fillStyle = "white"
-                ctx.fillText("Press SPACE to start the game", this.canvas.width / 2, this.canvas.height * 0.9)
+
+            // Prompt: SPACE keycap with an arcade "PRESS START" hard blink
+            if (t > 1200) {
+                ctx.save()
+                ctx.globalAlpha = Math.floor(t / 620) % 2 === 0 ? 1 : 0.25
+                const capH = h * 0.045
+                const capY = h * 0.9
+                const capW = drawKeycap(ctx, w * 0.5 - capH * 1.6, capY, capH, "SPACE")
+                drawGlowText(ctx, "to start", w * 0.5 - capH * 1.6 + capW / 2 + capH * 0.5, capY + capH * 0.18, capH * 0.62, {
+                    color: theme.ink,
+                    weight: 600,
+                    font: theme.font,
+                    align: "left",
+                })
+                ctx.restore()
             }
-            if (!finished) requestAnimationFrame(draw)
+
+            // Exit: fade to black, then resolve
+            if (exiting) {
+                if (exitStart === null) exitStart = ts
+                const ep = Math.min(1, (ts - exitStart) / exitDuration)
+                ctx.fillStyle = `rgba(0,0,0,${ep})`
+                ctx.fillRect(0, 0, w, h)
+                if (ep >= 1) {
+                    finished = true
+                    resolve()
+                    return
+                }
+            }
+            requestAnimationFrame(draw)
         }
         requestAnimationFrame(draw)
 
         const handler = (e) => {
             if (e.code === "Space") {
                 e.preventDefault() // Space would otherwise scroll the page under the canvas
-                finished = true
                 document.removeEventListener("keydown", handler)
-                resolve()
+                // A keydown is a user gesture, the one context where the browser honours a
+                // fullscreen request. Failure (e.g. iframe policy) is fine: the canvas already
+                // fills the window.
+                if (this._browserFullscreen && document.documentElement.requestFullscreen && !document.fullscreenElement) {
+                    document.documentElement.requestFullscreen().catch((err) => console.debug("Fullscreen refused", err))
+                }
+                exiting = true
             }
         }
         document.addEventListener("keydown", handler)

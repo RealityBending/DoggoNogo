@@ -18,12 +18,16 @@
  *  - `this.params` carries: gravity, min/maxJumpStrength, playerHeight, playerY, stimulusHeight,
  *    stimulusFallDistance, flashDuration, flashTintColor, minScore, maxScore, gameDifficulty,
  *    breakSparkles, ...
- *  - The aspect-defining stimulus image is `this.assets.imgStimulus` or `this.assets.imgStimulus1`.
+ *  - Stimulus proportions come from `getStimulusAspectImage()`. Every level draws its stimulus
+ *    procedurally (game/stimuli.js) and overrides that hook with its declared aspect ratio.
  *
  * Trial timing is frame-driven: `startNewTrial()` only records when the next stimulus is due, and
  * `updateTrialSchedule()` (called from `update()` with the requestAnimationFrame timestamp) reveals
  * it on a frame boundary, stamps `state.startTime` with the frame that actually presents it, and
- * closes the response window. Nothing about a trial is scheduled with `setTimeout`.
+ * closes the response window. Nothing about a trial is scheduled with `setTimeout`. When the
+ * window closes on a timeout, `state.responseWindowClosedAt` is stamped so that a press landing
+ * within `params.lateResponseGrace` ms is recognised by `isBelatedResponse(e)` as the late answer to
+ * that trial and ignored, rather than being scored as an early press on the next one.
  *
  * Required per level (the base has no default for any of these):
  *  - `getInitialState()`       factory returning a fresh `state`; `beginLevel()` calls it on every start
@@ -42,7 +46,7 @@
  *  - `startKeys` (string[]) / `isResponseKey(key)` which keys start / count as responses
  */
 
-import { DoggoNogoCore } from "./game.js"
+import { DoggoNogoCore, DoggoNogoUI } from "./game.js"
 
 const REF_W = 1792
 const REF_H = 1024
@@ -76,7 +80,15 @@ export const DoggoNogoBaseLevel = {
     /** Marker flash hook; the engine swaps in its own trigger for the duration of a run. */
     flashMarker: function () {},
 
-    /** Image whose natural dimensions define the stimulus aspect ratio. */
+    /**
+     * Object whose `naturalWidth`/`naturalHeight` define the stimulus box's aspect ratio.
+     *
+     * Only the ratio is read, so a level drawing its stimulus in code returns its declared
+     * proportions as a plain object rather than an image -- which all of them currently do. The
+     * sprite fallback is kept for a level that blits one, but note that a sprite's box is its
+     * bounding box, transparent padding included, so `stimulusHeight` would then size the padding
+     * rather than the stimulus.
+     */
     getStimulusAspectImage: function () {
         return this.assets.imgStimulus || this.assets.imgStimulus1
     },
@@ -132,6 +144,118 @@ export const DoggoNogoBaseLevel = {
         if (this.boundClickHandler && canvas) canvas.removeEventListener("click", this.boundClickHandler)
     },
 
+    // -----------------------------------------------------------------------
+    // Instruction screen (animated). Levels call `runInstructionScreen` from
+    // `showInstructionScreen` with a config; the loop is cancelled by
+    // `beginLevel()` when the player starts (or by `cancelInstructionScreen`).
+    // -----------------------------------------------------------------------
+
+    /** Starts a private rAF loop that redraws the instruction screen each frame. */
+    runInstructionScreen: function (canvas, config) {
+        this.cancelInstructionScreen()
+        let startTs = null
+        const loop = (ts) => {
+            if (startTs === null) startTs = ts
+            this.drawInstructionFrame(canvas, ts - startTs, config)
+            this._instructionRafId = requestAnimationFrame(loop)
+        }
+        this._instructionRafId = requestAnimationFrame(loop)
+    },
+
+    /** Stops the instruction-screen animation loop (safe to call when idle). */
+    cancelInstructionScreen: function () {
+        if (this._instructionRafId) {
+            cancelAnimationFrame(this._instructionRafId)
+            this._instructionRafId = null
+        }
+    },
+
+    /**
+     * Shared instruction-screen layout: level background under a dark scrim, a level badge,
+     * a display title, an instruction panel, an optional level-specific visual (stimulus +
+     * keycaps, drawn via `config.drawVisual(ctx, layout, elapsed)`), and a pulsing start prompt.
+     * Config: { badge, title, lines, promptSegments, drawVisual }.
+     */
+    drawInstructionFrame: function (canvas, elapsed, config) {
+        const ctx = canvas.getContext("2d")
+        const { fx, theme } = DoggoNogoUI
+        const w = canvas.width
+        const h = canvas.height
+
+        // Stage: artwork + scrim + vignette
+        const bg = this.assets.imgBackground
+        if (bg && bg.complete) ctx.drawImage(bg, 0, 0, w, h)
+        else {
+            ctx.fillStyle = theme.bgDeep
+            ctx.fillRect(0, 0, w, h)
+        }
+        const scrim = ctx.createLinearGradient(0, 0, 0, h)
+        scrim.addColorStop(0, "rgba(5,8,16,0.85)")
+        scrim.addColorStop(0.45, "rgba(5,8,16,0.55)")
+        scrim.addColorStop(1, "rgba(5,8,16,0.82)")
+        ctx.fillStyle = scrim
+        ctx.fillRect(0, 0, w, h)
+        fx.drawVignette(ctx, w, h, 0.35)
+
+        const intro = fx.easeOutCubic(elapsed / 600)
+        ctx.save()
+        ctx.globalAlpha = intro
+
+        // Level badge (arcade stage plate). A full pill, like the other small chips in the UI
+        // (loading bar, cutscene skip button), so every rounded element shares one language.
+        if (config.badge) {
+            const bh = h * 0.042
+            ctx.font = `${Math.round(bh * 0.42)}px ${theme.display}`
+            const bw = ctx.measureText(config.badge).width + bh * 1.6
+            fx.roundRectPath(ctx, w / 2 - bw / 2, h * 0.085 - bh / 2, bw, bh, bh / 2)
+            ctx.fillStyle = "rgba(255,200,87,0.13)"
+            ctx.fill()
+            ctx.strokeStyle = "rgba(255,200,87,0.55)"
+            ctx.lineWidth = Math.max(1, bh * 0.05)
+            ctx.stroke()
+            ctx.fillStyle = theme.accent
+            ctx.textAlign = "center"
+            ctx.textBaseline = "middle"
+            ctx.fillText(config.badge, w / 2, h * 0.085 + bh * 0.05)
+            ctx.textBaseline = "alphabetic"
+        }
+
+        // Title (settles down into place) over a tri-colour arcade rule
+        fx.drawGlowText(ctx, config.title, w / 2, h * 0.21 + (1 - intro) * h * 0.02, h * 0.046, {
+            color: theme.ink,
+            letterSpacing: `${Math.round(h * 0.002)}px`,
+        })
+        fx.drawTitleRule(ctx, w / 2, h * 0.228, w * 0.2 * intro, h * 0.004)
+
+        // Instruction panel
+        const lines = config.lines || []
+        const lineH = h * 0.047
+        const panelW = w * 0.58
+        const panelH = lineH * lines.length + h * 0.052
+        const panelY = h * 0.265
+        fx.drawPanel(ctx, w / 2 - panelW / 2, panelY, panelW, panelH, h * 0.022)
+        ctx.textAlign = "center"
+        ctx.fillStyle = theme.ink
+        ctx.font = `${Math.round(h * 0.036)}px ${theme.font}`
+        lines.forEach((l, i) => ctx.fillText(l, w / 2, panelY + h * 0.052 + i * lineH + h * 0.008))
+        ctx.restore()
+
+        // Level-specific visual (stimulus artwork + key mapping)
+        const visualTop = panelY + panelH + h * 0.02
+        const visualBottom = h * 0.82
+        if (config.drawVisual) {
+            config.drawVisual(ctx, { top: visualTop, bottom: visualBottom, cy: (visualTop + visualBottom) / 2, w, h }, elapsed)
+        }
+
+        // Pulsing start prompt
+        if (config.promptSegments && elapsed > 900) {
+            ctx.save()
+            ctx.globalAlpha = 0.55 + 0.45 * fx.pulse01(elapsed, 1400)
+            fx.drawPromptRow(ctx, w / 2, h * 0.9, h * 0.048, config.promptSegments, { color: theme.accent })
+            ctx.restore()
+        }
+    },
+
     /**
      * Recalculate sprite dimensions & positions after an external canvas resize.
      * (Canvas width/height should already be updated by host code before calling.)
@@ -173,8 +297,9 @@ export const DoggoNogoBaseLevel = {
      */
     beginLevel: function (canvas, endGameCallback, options) {
         DoggoNogoCore.clearTrialSchedule(this.state)
-        // The instruction screen's delayed "press X to start" prompt must not land on the canvas
-        // once gameplay is drawing to it.
+        // The instruction screen's animation loop (and any legacy delayed prompt) must not keep
+        // painting the canvas once gameplay is drawing to it.
+        this.cancelInstructionScreen()
         if (this.instructionHintTimeout) {
             clearTimeout(this.instructionHintTimeout)
             this.instructionHintTimeout = null
@@ -273,6 +398,7 @@ export const DoggoNogoBaseLevel = {
         }
         if (s.responseDeadline !== null && s.stimulus.visible && !s.stimulus.exiting && s.frameTime >= s.responseDeadline) {
             s.responseDeadline = null
+            s.responseWindowClosedAt = s.frameTime
             DoggoNogoCore.startStimulusExit(s, () => s.frameTime, "timeout")
             this.onResponseTimeout()
         }
@@ -281,6 +407,27 @@ export const DoggoNogoBaseLevel = {
     /** True while the stimulus has been drawn but not yet presented: a response cannot be to it. */
     isAwaitingStimulusOnset: function () {
         return this.state.onsetPending === true
+    },
+
+    /**
+     * True when a response arrives shortly after the response window closed on a timeout.
+     *
+     * Such a press is the participant's (late) answer to the trial that just timed out, not an
+     * anticipation of the one being scheduled: the decision was made while the stimulus was still
+     * on screen and the key simply landed after the deadline. Without this, a press that missed
+     * the window by a few hundred milliseconds was logged as an EARLY press for the *next* trial,
+     * penalty included, which is wrong in the data and baffling to the player (who saw the stimulus
+     * and pressed). The window is `params.lateResponseGrace` ms from the moment the deadline
+     * passed; it covers the 200 ms exit fade plus a motor-execution margin, and stays below the
+     * ISI floor so it can never overlap the next presentation. The press is ignored rather than
+     * scored: the trial was already logged as a timeout when its window closed.
+     */
+    isBelatedResponse: function (e) {
+        const grace = this.params.lateResponseGrace ?? 500
+        const closedAt = this.state.responseWindowClosedAt
+        if (!(grace > 0) || typeof closedAt !== "number") return false
+        const t = e ? this.eventTime(e) : this.state.frameTime
+        return t - closedAt >= 0 && t - closedAt < grace
     },
 
     /**
@@ -347,6 +494,66 @@ export const DoggoNogoBaseLevel = {
     },
 
     /**
+     * Contact shadow on the ground under the player, drawn before the sprite.
+     *
+     * It does two jobs. The sprites are cropped with the paws flush to the bottom edge and
+     * carry no shadow of their own (see the sheet spec in prompts/make_prompts.py), so at
+     * rest the character otherwise sits on the background with nothing tying it to the
+     * ground. And during a jump the shadow stays on the ground while the sprite rises,
+     * which is what actually communicates height: a sprite translating upward on its own
+     * is ambiguous between "jumping" and "floating".
+     *
+     * The shadow shrinks and fades with height rather than staying fixed, because a
+     * constant shadow reads as an object sliding rather than leaving the ground.
+     *
+     * Tunable via `params.jumpShadow`; set `{ enabled: false }` to suppress it.
+     */
+    drawPlayerShadow: function () {
+        const cfg = this.params.jumpShadow || {}
+        if (cfg.enabled === false) return
+        const p = this.state.player
+        if (!p.width || !p.height) return
+
+        // Height above the ground as a fraction of the highest jump these params allow -
+        // the apex of v^2/(2g) for the strongest jump. Normalising against the parameters
+        // rather than a fixed pixel count keeps the shadow honest if the jump is retuned.
+        const maxLift = Math.max(1, this.params.maxJumpStrength ** 2 / (2 * this.params.gravity))
+        const lift = Math.min(1, Math.max(0, (p.originalY - p.y) / maxLift))
+
+        // Width is a fraction of the sprite BOX, which is wider than the animal inside it
+        // (the level-1 sheet fills about two thirds of its square), so ~0.6 of the box lands
+        // roughly under the paws rather than poking out past them.
+        const restWidth = p.width * (cfg.widthRatio ?? 0.6)
+        const rx = (restWidth * (1 - (1 - (cfg.apexScale ?? 0.6)) * lift)) / 2
+        const ry = rx * (cfg.flatten ?? 0.24)
+        const restAlpha = cfg.alpha ?? 0.45
+        const alpha = restAlpha + ((cfg.apexAlpha ?? 0.13) - restAlpha) * lift
+        // Negated comparisons, so a NaN from a missing jump/gravity param bails out here
+        // instead of reaching createRadialGradient, which throws on a non-finite radius.
+        if (!(rx > 0) || !(alpha > 0)) return
+
+        const ctx = this.state.ctx
+        ctx.save()
+        ctx.translate(p.x + p.width / 2, p.originalY + p.height + (cfg.yOffset ?? 0) * p.height)
+        ctx.scale(1, ry / rx)
+        // A radial gradient drawn as a circle in the squashed frame, not a filled ellipse:
+        // a hard rim would read as a painted-on oval against the artwork.
+        // The core holds close to full strength out to ~60% of the radius before falling away.
+        // A plain centre-to-edge ramp averages far lighter than its nominal alpha and vanished
+        // against level 1's bright lawn.
+        const g = ctx.createRadialGradient(0, 0, 0, 0, 0, rx)
+        g.addColorStop(0, `rgba(0,0,0,${alpha})`)
+        g.addColorStop(0.6, `rgba(0,0,0,${alpha * 0.88})`)
+        g.addColorStop(0.85, `rgba(0,0,0,${alpha * 0.38})`)
+        g.addColorStop(1, "rgba(0,0,0,0)")
+        ctx.fillStyle = g
+        ctx.beginPath()
+        ctx.arc(0, 0, rx, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.restore()
+    },
+
+    /**
      * Draws the player sprite, applying an optional error/early flash tint and optional
      * horizontal mirroring when `state.playerFacing === "right"`.
      */
@@ -355,6 +562,7 @@ export const DoggoNogoBaseLevel = {
         const p = this.state.player
         const img = this.assets.imgPlayer
         if (!img) return
+        this.drawPlayerShadow()
         let sprite = img
         const flashUntil = this.state.flashUntil || 0
         if (this.state.frameTime < flashUntil) {
@@ -398,24 +606,54 @@ export const DoggoNogoBaseLevel = {
         return ["Press SPACE to continue"]
     },
 
-    /** Generic multi-line phase-break overlay (tunnel gradient + centered instructional text). */
+    /**
+     * Generic phase-break overlay: tunnel gradient, a "PHASE CLEAR" banner, the level's
+     * phase-specific instruction lines, and a pulsing SPACE prompt with a keycap.
+     */
     drawBreakOverlay: function () {
         const ctx = this.state.ctx
         const canvas = this.state.canvas
+        const { fx, theme } = DoggoNogoUI
+        const w = canvas.width
+        const h = canvas.height
         ctx.save()
         this.drawTunnelGradient()
         if (this.state.showBreakText) {
-            ctx.textAlign = "center"
-            const lines = this.getBreakOverlayLines()
-            const baseSize = canvas.height * 0.045
-            const lineHeight = baseSize * 1.25
-            const startY = (1 / 3) * canvas.height - (lines.length - 1) * lineHeight * 0.5
-            for (let i = 0; i < lines.length; i++) {
-                const size = i === 0 && lines.length > 1 ? baseSize * 1.05 : baseSize
-                ctx.font = `${Math.round(size)}px Arial`
-                ctx.fillStyle = i === lines.length - 1 ? "#FFD54F" : "white"
-                ctx.fillText(lines[i], canvas.width / 2, startY + i * lineHeight)
+            const elapsed = this.state.frameTime - this.state.breakStartTime
+            const reveal = fx.easeOutBack(Math.min(1, elapsed / 2600))
+
+            // Banner: the phase just completed (phaseIndex was already advanced at break start),
+            // tinted with that phase's segment colour from the life bar.
+            // Constant px + `scale` so the grow animation reuses one cached text sprite.
+            const phaseColor = (theme.barColors || [])[Math.max(0, this.state.phaseIndex - 1)] || theme.accent
+            fx.drawGlowText(ctx, `PHASE ${this.state.phaseIndex} CLEAR!`, w / 2, h * 0.14, h * 0.048, {
+                color: phaseColor,
+                letterSpacing: `${Math.round(h * 0.002)}px`,
+                scale: reveal,
+            })
+            fx.drawTitleRule(ctx, w / 2, h * 0.162, w * 0.18 * Math.min(1, reveal), h * 0.004)
+
+            // Instruction lines (top area, clear of the spotlighted player)
+            const lines = this.getBreakOverlayLines().filter((l) => l && !/press space/i.test(l))
+            if (lines.length) {
+                const lineH = h * 0.046
+                lines.forEach((l, i) =>
+                    fx.drawGlowText(ctx, l, w / 2, h * 0.23 + i * lineH, h * 0.038, {
+                        color: theme.ink,
+                        weight: 500,
+                        font: theme.font,
+                        glowSize: 0.3,
+                    }),
+                )
             }
+
+            // Pulsing continue prompt
+            ctx.save()
+            ctx.globalAlpha = 0.55 + 0.45 * fx.pulse01(elapsed, 1400)
+            fx.drawPromptRow(ctx, w / 2, h * 0.9, h * 0.045, [{ t: "Press" }, { k: "SPACE" }, { t: "to continue" }], {
+                color: theme.ink,
+            })
+            ctx.restore()
         }
         ctx.restore()
     },
@@ -424,32 +662,65 @@ export const DoggoNogoBaseLevel = {
     drawEndOverlay: function () {
         const ctx = this.state.ctx
         const canvas = this.state.canvas
+        const { fx, theme } = DoggoNogoUI
+        const w = canvas.width
+        const h = canvas.height
         ctx.save()
-        ctx.fillStyle = "rgba(0,0,0,0.6)"
-        ctx.fillRect(0, 0, canvas.width, canvas.height)
-        const cX = canvas.width / 2
-        const cY = canvas.height / 2
+        ctx.fillStyle = "rgba(4,6,12,0.72)"
+        ctx.fillRect(0, 0, w, h)
+        const cX = w / 2
+        const cY = h / 2
         const rts = this.state.reactionTimes || []
         const avg = rts.length ? rts.reduce((a, b) => a + b, 0) / rts.length : 0
-        ctx.fillStyle = "#fff"
+
+        // Card
+        const panelW = w * 0.42
+        const panelH = h * 0.42
+        fx.drawPanel(ctx, cX - panelW / 2, cY - panelH / 2, panelW, panelH, h * 0.025)
+
         ctx.textAlign = "center"
-        ctx.font = `${Math.round(canvas.height * 0.06)}px Arial`
-        ctx.fillText(this.endOverlayTitle || "Level Complete", cX, cY - canvas.height * 0.12)
-        ctx.font = `${Math.round(canvas.height * 0.035)}px Arial`
-        ctx.fillText(`Average RT: ${avg.toFixed(1)} ms`, cX, cY - canvas.height * 0.06)
-        const btnW = Math.round(canvas.width * 0.25)
-        const btnH = Math.round(canvas.height * 0.08)
+        fx.drawGlowText(ctx, this.endOverlayTitle || "Level Complete", cX, cY - panelH * 0.22, h * 0.038, { color: theme.ink })
+        ctx.fillStyle = theme.inkSoft
+        ctx.font = `${Math.round(h * 0.036)}px ${theme.font}`
+        ctx.fillText(`Average reaction time: ${avg.toFixed(0)} ms`, cX, cY - panelH * 0.05)
+
+        // Continue button — arcade cabinet style: hard offset shadow slab, chunky border,
+        // pixel-font label. (Hit rect stays static; only the visuals breathe.)
+        const btnW = Math.round(w * 0.18)
+        const btnH = Math.round(h * 0.075)
         const btnX = Math.round(cX - btnW / 2)
-        const btnY = Math.round(cY)
+        const btnY = Math.round(cY + panelH * 0.12)
         this.state.endButtonRect = { x: btnX, y: btnY, w: btnW, h: btnH }
-        ctx.fillStyle = "#2196F3"
-        ctx.strokeStyle = "#0b79d0"
-        ctx.lineWidth = 2
-        ctx.fillRect(btnX, btnY, btnW, btnH)
-        ctx.strokeRect(btnX, btnY, btnW, btnH)
-        ctx.fillStyle = "#fff"
-        ctx.font = `${Math.round(btnH * 0.45)}px Arial`
-        ctx.fillText(this.state.continueLabel || "Continue", cX, btnY + Math.round(btnH * 0.66))
+        const t = this.state.frameTime || 0
+        const glow = 0.4 + 0.6 * fx.pulse01(t, 1600)
+        const drop = Math.max(3, Math.round(btnH * 0.09))
+        const br = Math.round(btnH * 0.18)
+        ctx.save()
+        // Hard shadow slab (the classic "pressed cartridge" depth)
+        fx.roundRectPath(ctx, btnX + drop, btnY + drop, btnW, btnH, br)
+        ctx.fillStyle = "rgba(0,0,0,0.55)"
+        ctx.fill()
+        // Face
+        const bg = ctx.createLinearGradient(0, btnY, 0, btnY + btnH)
+        bg.addColorStop(0, theme.accent)
+        bg.addColorStop(1, theme.accentHot)
+        fx.roundRectPath(ctx, btnX, btnY, btnW, btnH, br)
+        ctx.shadowColor = `rgba(255,200,87,${0.4 * glow})`
+        ctx.shadowBlur = btnH * 0.55
+        ctx.fillStyle = bg
+        ctx.fill()
+        ctx.shadowColor = "transparent"
+        ctx.strokeStyle = "#1a1205"
+        ctx.lineWidth = Math.max(2, btnH * 0.06)
+        ctx.stroke()
+        // Top bevel highlight
+        ctx.fillStyle = "rgba(255,255,255,0.35)"
+        ctx.fillRect(btnX + br, btnY + ctx.lineWidth, btnW - br * 2, Math.max(1.5, btnH * 0.06))
+        ctx.fillStyle = "#1a1205"
+        ctx.font = `${Math.round(btnH * 0.28)}px ${theme.display}`
+        ctx.textBaseline = "middle"
+        ctx.fillText((this.state.continueLabel || "Continue").toUpperCase(), cX, btnY + btnH * 0.56)
+        ctx.restore()
         ctx.restore()
     },
 
