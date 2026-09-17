@@ -6,8 +6,8 @@
         <title>Doggo/Nogo: The Game</title>
         <style>
             :root {
-                --target-width: 1792;
-                --target-height: 1024;
+                --target-width: 1920;
+                --target-height: 1080;
             }
             body {
                 margin: 0;
@@ -18,8 +18,20 @@
                 /* Dark stage so the canvas reads like a theatre screen, not a form element */
                 background: radial-gradient(ellipse at 50% 35%, #182036 0%, #0c101d 55%, #070a12 100%);
             }
+            /* Ambient surround: a blurred, darkened copy of the scene on stage, painted behind the
+               canvas so the letterbox on screens that aren't 16:9 continues the picture instead
+               of showing bars. Sized to the viewport at low resolution; the blur hides the rest. */
+            #ambient {
+                position: fixed;
+                inset: 0;
+                width: 100vw;
+                height: 100vh;
+                z-index: 0;
+                pointer-events: none;
+            }
             #canvasWrapper {
                 position: relative;
+                z-index: 1;
             }
             canvas {
                 border: none;
@@ -36,6 +48,7 @@
         </style>
     </head>
     <body>
+        <canvas id="ambient"></canvas>
         <div id="canvasWrapper">
             <canvas id="gameCanvas"></canvas>
         </div>
@@ -45,7 +58,7 @@
         <script type="module">
             // Entry point for the standalone game: size the canvas, then run levels 1 -> 2 -> 3 -> 4 -> 5
             // (or start partway through the chain -- see LEVELS / START_LEVEL below).
-            import { DoggoNogoCore } from "./game.js"
+            import { DoggoNogoCore, DoggoNogoUI } from "./game.js"
             import { DoggoNogoEngine } from "./engine.js"
             import { level1 } from "./levels/level1.js"
             import { level2 } from "./levels/level2.js"
@@ -54,10 +67,43 @@
             import { level5 } from "./levels/level5.js"
             import { level1Cutscene, level2Cutscene, level3Cutscene, level4Cutscene, level5Cutscene } from "./levels/cutscenes.js"
 
-            const TARGET_W = 1792
-            const TARGET_H = 1024
+            // 16:9 design canvas (the aspect of nearly every screen). Other screen shapes get a
+            // letterbox, filled by the ambient painter below rather than left as bars.
+            const TARGET_W = 1920
+            const TARGET_H = 1080
             const ASPECT = TARGET_W / TARGET_H
             const canvas = document.getElementById("gameCanvas")
+
+            // Ambient surround (see the #ambient style rule). Repainted whenever the engine
+            // announces a new scene image and on resize; cheap because it renders at a quarter
+            // of the viewport resolution and lets the blur do the rest.
+            const ambient = document.getElementById("ambient")
+            const ambientCtx = ambient.getContext("2d")
+            function paintAmbient() {
+                const img = DoggoNogoUI.ambient.image
+                const vw = document.documentElement.clientWidth || window.innerWidth
+                const vh = document.documentElement.clientHeight || window.innerHeight
+                const w = Math.max(1, Math.round(vw / 4))
+                const h = Math.max(1, Math.round(vh / 4))
+                if (ambient.width !== w || ambient.height !== h) {
+                    ambient.width = w
+                    ambient.height = h
+                }
+                ambientCtx.clearRect(0, 0, w, h)
+                if (!img) return // the body gradient shows through
+                ambientCtx.save()
+                ambientCtx.filter = `blur(${Math.max(2, Math.round(h * 0.03))}px) brightness(0.55) saturate(1.15)`
+                // Slightly oversized so the blur's soft edge never reveals the gradient behind it.
+                DoggoNogoUI.fx.drawImageCover(ambientCtx, img, -w * 0.05, -h * 0.05, w * 1.1, h * 1.1)
+                ambientCtx.restore()
+                // Recede further toward the edges so the stage stays the brightest thing on screen.
+                const vignette = ambientCtx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.3, w / 2, h / 2, Math.max(w, h) * 0.7)
+                vignette.addColorStop(0, "rgba(7,10,18,0.25)")
+                vignette.addColorStop(1, "rgba(7,10,18,0.8)")
+                ambientCtx.fillStyle = vignette
+                ambientCtx.fillRect(0, 0, w, h)
+            }
+            DoggoNogoUI.ambient.onChange(paintAmbient)
 
             function sizeCanvas() {
                 // `innerWidth`/`innerHeight` include the scrollbar, and the canvas carries a 1px
@@ -67,8 +113,8 @@
                 const BORDER = 2
                 const maxW = document.documentElement.clientWidth - BORDER
                 const maxH = document.documentElement.clientHeight - BORDER
-                // Fill the window (no 1792/1024 cap), preserving the design aspect ratio;
-                // the dark page background letterboxes whatever the aspect leaves over.
+                // Fill the window (no 1920/1080 cap), preserving the design aspect ratio;
+                // the ambient painter fills whatever the aspect leaves over.
                 let w = maxW
                 let h = Math.round(w / ASPECT)
                 if (h > maxH) {
@@ -87,8 +133,10 @@
             }
 
             sizeCanvas()
+            paintAmbient()
             window.addEventListener("resize", () => {
                 sizeCanvas()
+                paintAmbient()
                 // Let current running level recompute sprite sizes/positions (engine also listens, but call directly for immediate effect)
                 if (DoggoNogoEngine.level && typeof DoggoNogoEngine.level.handleResize === "function") {
                     DoggoNogoEngine.level.handleResize()
@@ -106,8 +154,7 @@
                 { level: level4, cutscene: level4Cutscene },
                 { level: level5, cutscene: level5Cutscene },
             ]
-            // TEMPORARY (testing the illusion levels): set back to 1 to play the game from the start.
-            const START_LEVEL = 3 // 1-based; overridden by ?level=N
+            const START_LEVEL = 1 // 1-based; overridden by ?level=N
 
             function resolveStartIndex() {
                 const params = new URLSearchParams(window.location.search)

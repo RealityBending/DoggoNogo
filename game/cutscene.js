@@ -476,7 +476,7 @@ export const CutsceneRunner = {
     drawText: function (text, fontSize = 36, withOutline = false, color = "white", yPercent = 50, fontKey = "body") {
         const ctx = this.ctx
         const theme = DoggoNogoUI.theme
-        const scale = (this.canvas.width / 1792 + this.canvas.height / 1024) / 2
+        const scale = (this.canvas.width / 1920 + this.canvas.height / 1080) / 2
         // Narrative text uses the terminal body face (readable at paragraph length); a step may
         // opt into the pixel display face with `font: "display"` for short dramatic beats.
         const face = fontKey === "display" ? theme.display : theme.font
@@ -505,7 +505,7 @@ export const CutsceneRunner = {
 
     drawBackground: function (img) {
         if (img && img.complete) {
-            this.ctx.drawImage(img, 0, 0, this.canvas.width, this.canvas.height)
+            DoggoNogoUI.fx.drawImageCover(this.ctx, img, 0, 0, this.canvas.width, this.canvas.height)
         }
     },
 

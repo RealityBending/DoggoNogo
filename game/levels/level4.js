@@ -61,10 +61,10 @@ export const level4 = {
     // Mutable runtime data. Replaced by a fresh object on every `start()` (see illusion.js).
     state: null,
 
-    instructionTitle: "Ribboned bones",
+    instructionTitle: "The way home",
     instructionLines: [
-        "Nogo has tied ribbons onto the bones!",
-        "Press the arrow key pointing at the LONGER bone —",
+        "Nogo is luring Doggo home with a trail of ribboned bones.",
+        "Press the arrow key pointing at the LONGER bone -",
         "and don't let the ribbons fool your eyes.",
     ],
 
@@ -82,9 +82,9 @@ export const level4 = {
     /** Phase-break overlay lines announcing the ramp (see `params.phases`). */
     getBreakOverlayLines: function () {
         if (this.state.phaseIndex === 1) {
-            return ["Nogo pulls the ribbons tighter —", "they warp the bones' looks!", "", "Press SPACE to continue"]
+            return ["The frenzy is fading... Nogo sweeps the ribbons wider -", "they warp the bones' looks!", "", "Press SPACE to continue"]
         } else if (this.state.phaseIndex === 2) {
-            return ["Final phase: the differences get subtle.", "Look closely!", "", "Press SPACE to continue"]
+            return ["Almost home. The differences get subtle now.", "Look closely!", "", "Press SPACE to continue"]
         }
         return ["Press SPACE to continue"]
     },

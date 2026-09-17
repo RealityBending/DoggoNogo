@@ -111,9 +111,8 @@ export const level2 = {
         soundSlow: new Audio(),
         soundBackground: new Audio(),
         soundStart: new Audio(),
-        // Cover (reuse root-level assets)
+        // Cover screen art (shared); the title itself is drawn in code by the engine.
         imgCover: new Image(),
-        imgCoverText: new Image(),
         // Feedback images
         imgFeedbackSlow: new Image(),
         imgFeedbackLate: new Image(),
@@ -211,8 +210,7 @@ export const level2 = {
         this.assets.soundSlow.src = base + "level2/sound_slow.mp3"
         this.assets.soundBackground.src = base + "level2/Fishbone.mp3"
         this.assets.soundStart.src = base + "sound_start.mp3"
-        this.assets.imgCover.src = base + "cover1_noText.png"
-        this.assets.imgCoverText.src = base + "text.png"
+        this.assets.imgCover.src = base + "cover.webp"
         this.assets.imgFeedbackSlow.src = base + "level2/feedback_slow1.png"
         this.assets.imgFeedbackLate.src = base + "level2/feedback_late1.png"
         this.assets.imgFeedbackFast1.src = base + "level2/feedback_fast1.png"
@@ -226,7 +224,6 @@ export const level2 = {
             this.assets.imgPlayer3,
             this.assets.imgBackground,
             this.assets.imgCover,
-            this.assets.imgCoverText,
             this.assets.imgFeedbackSlow,
             this.assets.imgFeedbackLate,
             this.assets.imgFeedbackFast1,

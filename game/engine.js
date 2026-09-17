@@ -150,11 +150,14 @@ export const DoggoNogoEngine = {
 
             // 1.5 Cover screen (optional skip for chained levels)
             if (!skipCover) {
+                DoggoNogoUI.ambient.set(this.level.assets.imgCover)
                 await this.showCoverScreen()
             }
 
             // Run the cutscene if it exists (now after a user interaction)
             if (cutscene) {
+                // Cutscenes are letterboxed film on a black stage: the surround goes dark with them.
+                DoggoNogoUI.ambient.set(null)
                 // Ensure cutscene-specific assets are loaded
                 try {
                     await DoggoNogoCutsceneAssets.load(options.assetBasePath)
@@ -170,6 +173,7 @@ export const DoggoNogoEngine = {
             }
 
             // 2. Show instruction screen and wait for user to start
+            DoggoNogoUI.ambient.set(this.level.assets.imgBackground || null)
             if (this.level.showInstructionScreen) {
                 this.level.showInstructionScreen(this.canvas)
             } else {
@@ -197,6 +201,7 @@ export const DoggoNogoEngine = {
             this.level.start(this.canvas, (state) => {
                 // This is the endGameCallback from the level
                 this.stop()
+                DoggoNogoUI.ambient.set(null)
                 if (DoggoNogoUI.showScoreScreen) {
                     // Compute the end-of-level performance summary (IES -> Z -> percentile).
                     const { meanRT, errorRate, ies, zIES, quantile } = DoggoNogoCore.computeIES(state.data, {
@@ -447,25 +452,77 @@ export const DoggoNogoEngine = {
 }
 
 /**
- * Displays the title screen and waits for SPACE. Cinematic but cheap: a slow Ken Burns
- * zoom on the cover art, a vignette, drifting fireflies, the title art easing in, and a
- * pulsing SPACE keycap prompt. SPACE fades to black before resolving, so the cutscene (or
- * instructions) never pops in abruptly. Also ensures at least one user interaction before
- * any cutscene audio plays.
+ * Displays the title screen and waits for SPACE. Everything on it is drawn in code over the
+ * cover artwork: a slow Ken Burns zoom, a scrim, drifting fireflies, the DOGGO/NOGO wordmark
+ * easing into place with a light sweep across it, and a blinking SPACE keycap. SPACE fades to
+ * black before resolving, so the cutscene (or instructions) never pops in abruptly. Also
+ * ensures at least one user interaction before any cutscene audio plays.
+ *
+ * The wordmark used to be a second full-frame PNG (`text.png`) blitted over the art, which
+ * pinned its size, position and colour to the artwork's aspect ratio and could not respond to
+ * anything. Drawing it means it is laid out against the actual canvas, animates, and can be
+ * restyled without regenerating an asset.
  */
 DoggoNogoEngine.showCoverScreen = function () {
     return new Promise((resolve) => {
         const cover = this.level.assets.imgCover
-        const coverText = this.level.assets.imgCoverText
         const ctx = this.ctx
         const canvas = this.canvas
-        const { drawKeycap, drawVignette, drawGlowText, easeOutCubic, pulse01 } = DoggoNogoUI.fx
+        const { drawPromptRow, drawVignette, drawGlowText, measureGlowText, drawImageCover, drawTitleRule, easeOutCubic, easeOutBack } =
+            DoggoNogoUI.fx
         const theme = DoggoNogoUI.theme
         let startTs = null
         let finished = false
         let exiting = false
         let exitStart = null
         const exitDuration = 450 // ms fade-to-black after SPACE
+
+        // Wordmark treatment: one flat arcade colour per word, a deep navy keyline and a hard
+        // offset shadow. Deliberately flat -- the old logo's blue/orange gradient went muddy
+        // against the artwork and softened the letter edges. The two colours split the cast the
+        // way the art does: Doggo warm on the sunset side, Nogo cold on the dusk side, with the
+        // slash in the sky's purple.
+        const wordStyle = (color) => ({
+            color,
+            font: theme.display,
+            weight: 400,
+            glow: "rgba(4,6,14,0.85)",
+            glowSize: 0.5,
+            outline: "#0b0f1e",
+            outlineWidth: 0.2,
+            hardShadow: "rgba(4,6,14,0.55)",
+            hardShadowDx: 0.02,
+            hardShadowDy: 0.12,
+        })
+        const styleDoggo = wordStyle(theme.accent)
+        const styleNogo = wordStyle(theme.accentCyan)
+        const styleSlash = wordStyle(theme.accentPurple)
+        // Bare letterforms for the light sweep: no keyline, no shadow, no halo, so the additive
+        // pass brightens the letter faces and nothing else.
+        const shineStyle = { ...wordStyle("#ffffff"), outline: null, hardShadow: null, glow: "rgba(0,0,0,0)", glowSize: 0 }
+
+        const TAGLINE = "THE NEUROPSYCHOLOGICAL GAME"
+
+        /**
+         * Measures the lockup and fits it to the canvas. Both retro faces fall back to system
+         * fonts with very different metrics, so the size is measured rather than assumed: the
+         * wider of the two rows is scaled to a fixed fraction of the canvas and everything else
+         * follows it. The measurements come out of the sprite cache, so after the first frame
+         * this is arithmetic.
+         */
+        const layout = (w) => {
+            const wordPx = Math.max(10, Math.round(w * 0.06))
+            const dogW = measureGlowText("DOGGO", wordPx, styleDoggo)
+            const nogoW = measureGlowText("NOGO", wordPx, styleNogo)
+            const slashW = measureGlowText("/", wordPx, styleSlash)
+            const gap = wordPx * 0.32
+            const row2W = slashW + gap + nogoW
+            // The lockup is kept narrow enough to sit in the open sky between the tree canopy
+            // on Doggo's side and Nogo on the fence.
+            const lockW = w * 0.36
+            const scale = lockW / Math.max(dogW, row2W)
+            return { wordPx, slashW, gap, row2W, scale, lockW, cap: wordPx * scale }
+        }
 
         // Ambient fireflies (normalized coordinates; wrapped every frame).
         // Mostly warm gold with the odd cool cyan one drifting through.
@@ -481,7 +538,7 @@ DoggoNogoEngine.showCoverScreen = function () {
 
         const draw = (ts) => {
             if (finished) return
-            if (!startTs) startTs = ts
+            if (startTs === null) startTs = ts
             const t = ts - startTs
             const w = canvas.width
             const h = canvas.height
@@ -489,20 +546,40 @@ DoggoNogoEngine.showCoverScreen = function () {
             ctx.fillStyle = "#000"
             ctx.fillRect(0, 0, w, h)
 
-            // Cover art with a slow settle-in zoom
+            // Cover art, fading up from black with a slow settle-in zoom
+            const fadeIn = Math.min(1, t / 650)
             if (cover && cover.complete) {
                 const zoom = 1.08 - 0.08 * easeOutCubic(t / 7000)
                 const zw = w * zoom
                 const zh = h * zoom
-                ctx.drawImage(cover, (w - zw) / 2, (h - zh) / 2, zw, zh)
+                ctx.save()
+                ctx.globalAlpha = fadeIn
+                drawImageCover(ctx, cover, (w - zw) / 2, (h - zh) / 2, zw, zh)
+                ctx.restore()
             }
-            drawVignette(ctx, w, h, 0.55)
+            drawVignette(ctx, w, h, 0.5)
 
-            // Fireflies
+            // Scrims. The sky behind the wordmark and the lawn behind the prompt are both
+            // mid-toned, so each end of the frame is graded down until text reads cleanly over
+            // it — enough for the type, not enough to lose either character.
+            const topScrim = ctx.createLinearGradient(0, 0, 0, h * 0.62)
+            topScrim.addColorStop(0, "rgba(6,8,16,0.66)")
+            topScrim.addColorStop(0.55, "rgba(6,8,16,0.28)")
+            topScrim.addColorStop(1, "rgba(6,8,16,0)")
+            ctx.fillStyle = topScrim
+            ctx.fillRect(0, 0, w, h * 0.62)
+            const bottomScrim = ctx.createLinearGradient(0, h * 0.7, 0, h)
+            bottomScrim.addColorStop(0, "rgba(6,8,16,0)")
+            bottomScrim.addColorStop(1, "rgba(6,8,16,0.7)")
+            ctx.fillStyle = bottomScrim
+            ctx.fillRect(0, h * 0.7, w, h * 0.3)
+
+            // Fireflies (they come up with the artwork, not before it)
             ctx.save()
+            ctx.globalAlpha = fadeIn
             for (const f of fireflies) {
-                const fx = ((f.x + t * f.vx) % 1 + 1) % 1
-                const fy = ((f.y + t * f.vy) % 1 + 1) % 1
+                const fx = (((f.x + t * f.vx) % 1) + 1) % 1
+                const fy = (((f.y + t * f.vy) % 1) + 1) % 1
                 const a = 0.25 + 0.4 * (0.5 + 0.5 * Math.sin(t / 700 + f.phase))
                 const rad = f.r * h * 3
                 const g = ctx.createRadialGradient(fx * w, fy * h, 0, fx * w, fy * h, rad)
@@ -515,31 +592,90 @@ DoggoNogoEngine.showCoverScreen = function () {
             }
             ctx.restore()
 
-            // Title art: fade + drift up + settle
-            if (coverText && coverText.complete) {
-                const p = easeOutCubic(Math.min(1, t / 1100))
-                const scale = 0.97 + 0.03 * p
-                const dw = w * scale
-                const dh = h * scale
+            // ---- Wordmark ---------------------------------------------------------------
+            // Two rows, "DOGGO" over "/ NOGO", each dropping into place from its own side.
+            const L = layout(w)
+            const cx = w / 2
+            const baseY1 = h * 0.26
+            const baseY2 = baseY1 + L.cap * 1.04
+            const p1 = easeOutCubic(Math.min(1, Math.max(0, (t - 220) / 620)))
+            const p2 = easeOutCubic(Math.min(1, Math.max(0, (t - 420) / 620)))
+            const s1 = L.scale * (0.9 + 0.1 * easeOutBack(Math.min(1, Math.max(0, (t - 220) / 700))))
+            const s2 = L.scale * (0.9 + 0.1 * easeOutBack(Math.min(1, Math.max(0, (t - 420) / 700))))
+            const y1 = baseY1 - (1 - p1) * L.cap * 0.3
+            const y2 = baseY2 + (1 - p2) * L.cap * 0.3
+
+            const paintWordmark = (sDoggo, sSlash, sNogo, alphaMul) => {
                 ctx.save()
-                ctx.globalAlpha = p
-                ctx.drawImage(coverText, (w - dw) / 2, (h - dh) / 2 + (1 - p) * h * 0.02, dw, dh)
+                ctx.globalAlpha *= p1 * alphaMul
+                drawGlowText(ctx, "DOGGO", cx, y1, L.wordPx, { ...sDoggo, scale: s1 })
+                ctx.restore()
+                ctx.save()
+                ctx.globalAlpha *= p2 * alphaMul
+                const rowLeft = cx - (L.row2W * s2) / 2
+                drawGlowText(ctx, "/", rowLeft, y2, L.wordPx, { ...sSlash, align: "left", scale: s2 })
+                drawGlowText(ctx, "NOGO", rowLeft + (L.slashW + L.gap) * s2, y2, L.wordPx, { ...sNogo, align: "left", scale: s2 })
+                ctx.restore()
+            }
+            paintWordmark(styleDoggo, styleSlash, styleNogo, 1)
+
+            // Light sweep: a tilted band travelling across the lockup once it has landed, and
+            // every few seconds after, redrawing the bare letterforms additively inside it.
+            const shineT = t - 1400
+            if (shineT > 0) {
+                const sp = (shineT % 5600) / 900
+                if (sp < 1) {
+                    const top = y1 - L.cap * 1.1
+                    const bottom = y2 + L.cap * 0.35
+                    const bandW = w * 0.07
+                    const skew = (bottom - top) * 0.4
+                    const left = cx - L.lockW / 2 - bandW - skew
+                    const bx = left + sp * (L.lockW + bandW * 2 + skew * 2)
+                    ctx.save()
+                    ctx.beginPath()
+                    ctx.moveTo(bx, top)
+                    ctx.lineTo(bx + bandW, top)
+                    ctx.lineTo(bx + bandW + skew, bottom)
+                    ctx.lineTo(bx + skew, bottom)
+                    ctx.closePath()
+                    ctx.clip()
+                    ctx.globalCompositeOperation = "lighter"
+                    paintWordmark(shineStyle, shineStyle, shineStyle, 0.45 * Math.sin(sp * Math.PI))
+                    ctx.restore()
+                }
+            }
+
+            // Rule and tagline under the lockup
+            const ruleP = easeOutCubic(Math.min(1, Math.max(0, (t - 850) / 700)))
+            if (ruleP > 0) drawTitleRule(ctx, cx, baseY2 + L.cap * 0.6, w * 0.28 * ruleP, h * 0.006)
+            const tagA = Math.min(1, Math.max(0, (t - 1100) / 700))
+            if (tagA > 0) {
+                // The subtitle is set in the pixel face too, and fitted to a fixed fraction of
+                // the canvas the same way the wordmark is. The body face was too fine to hold
+                // up at this size over the skyline; the chunkier glyphs keep it legible.
+                const tagPx = Math.max(8, Math.round(w * 0.014))
+                const tagStyle = {
+                    color: theme.inkSoft,
+                    font: theme.display,
+                    weight: 400,
+                    glow: "rgba(4,6,14,0.95)",
+                    glowSize: 0.85,
+                    letterSpacing: `${Math.round(tagPx * 0.25)}px`,
+                }
+                ctx.save()
+                ctx.globalAlpha = tagA
+                drawGlowText(ctx, TAGLINE, cx, baseY2 + L.cap * 1.3, tagPx, {
+                    ...tagStyle,
+                    scale: (w * 0.33) / measureGlowText(TAGLINE, tagPx, tagStyle),
+                })
                 ctx.restore()
             }
 
             // Prompt: SPACE keycap with an arcade "PRESS START" hard blink
-            if (t > 1200) {
+            if (t > 1500) {
                 ctx.save()
-                ctx.globalAlpha = Math.floor(t / 620) % 2 === 0 ? 1 : 0.25
-                const capH = h * 0.045
-                const capY = h * 0.9
-                const capW = drawKeycap(ctx, w * 0.5 - capH * 1.6, capY, capH, "SPACE")
-                drawGlowText(ctx, "to start", w * 0.5 - capH * 1.6 + capW / 2 + capH * 0.5, capY + capH * 0.18, capH * 0.62, {
-                    color: theme.ink,
-                    weight: 600,
-                    font: theme.font,
-                    align: "left",
-                })
+                ctx.globalAlpha = Math.floor((t - 1500) / 620) % 2 === 0 ? 1 : 0.28
+                drawPromptRow(ctx, cx, h * 0.87, h * 0.05, [{ k: "SPACE" }, { t: "to start" }])
                 ctx.restore()
             }
 

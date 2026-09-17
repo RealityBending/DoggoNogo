@@ -134,9 +134,8 @@ export const level1 = {
         soundSlow: new Audio(),
         soundEarly: new Audio(),
         soundStart: new Audio(),
-        // Cover screen assets (shared)
+        // Cover screen art (shared); the title itself is drawn in code by the engine.
         imgCover: new Image(),
-        imgCoverText: new Image(),
     },
 
     // Mutable runtime data. Replaced by a fresh object on every `start()`.
@@ -241,8 +240,7 @@ export const level1 = {
         this.assets.soundEvolve.src = base + "level1/sound_evolve.mp3"
         this.assets.soundStart.src = base + "sound_start.mp3"
         this.assets.soundLevelUp.src = base + "sound_levelup.mp3"
-        this.assets.imgCover.src = base + "cover1_noText.png"
-        this.assets.imgCoverText.src = base + "text.png"
+        this.assets.imgCover.src = base + "cover.webp"
 
         const assetRefs = [
             this.assets.imgPlayer1,
@@ -263,7 +261,6 @@ export const level1 = {
             this.assets.soundEarly,
             this.assets.soundStart,
             this.assets.imgCover,
-            this.assets.imgCoverText,
         ]
         return DoggoNogoCore.loadAssets(assetRefs, options && options.onProgress).then(() => {
             this.params.stimulusHeight = this.getBoneEnvelopeFraction()

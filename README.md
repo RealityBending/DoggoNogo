@@ -115,19 +115,23 @@ Level 2 shares the same object interface and engine as Level 1 but adds the foll
 - **Control Pre-Trial Sequential Carryover Effects (Gratton Effect)** :Conflict tasks exhibit strong sequential dependencies: the Simon effect is significantly reduced following an incongruent trial compared to a congruent trial. We should implement a control of trial randomization by using pseudo-random Latin squares or counterbalancing transition matrices so that the proportion of congruent-after-congruent, incongruent-after-congruent, congruent-after-incongruent, and incongruent-after-incongruent pairs are balanced. 
 - **Counterbalance Stimulus Feature Transitions (Negative Priming / Feature Binding)**: When stimulus direction or location repeats or partially alternates across consecutive trials (e.g., left fish on left $\to$ left fish on right), episodic retrieval and feature-binding costs distort reaction times.
 
-### Illusion levels (3–5): character evolution
+### Illusion levels (3–5): narrative and character evolution
 
-Doggo's phase evolutions across the illusion arc are about perception rather than growth, and each level's sheet continues the previous one (sprite prompts in `prompts/make_prompts.py`, steps 6–7):
+The arc is **"Bone fever"**, a story about impulsivity that sets up the command-training level that follows it (sprite, background and cutscene prompts in `prompts/make_prompts.py`, under the Level 3–5 steps; cutscene text in `game/levels/cutscenes.js`):
 
-- **Level 3 (vertical–horizontal)**: derpy Doggo → interrogating pose → razor-sharp sniffing-dog stance.
-- **Level 4 (Müller-Lyer)**: sharp Doggo → red ribbon bandana around the neck → a second ribbon as a ninja-style headband (Nogo's ribbons claimed as trophies).
-- **Level 5 (Ebbinghaus)**: bandana Doggo → half-finished hand-knitted top (one sleeve missing, needle still in) → finished knitted jumper, made from Nogo's defeated yarn.
+- **Level 3 (vertical–horizontal)** — *the descent*. A car speeds past the garden and someone throws a bone out of the window. Doggo doesn't think, Doggo runs: out of the gate, into the city, after the bone, then the next one. The three phases are three places and three states of mind, each with its own background (swapped at the phase break like the sprites): **phase 1** happy on a restaurant's pavement terrace, picking up bones left on the tables; **phase 2** eyes going loony, he can't stop and wants MORE, at the kitchen's back door; **phase 3** berserk, *in* the kitchen, the terrified Chef throwing bones just to keep him back. Thrown bones land at any angle, which is what justifies the tilted-bone stimulus without a villain. Sheet: happy with a bone → manic grin, spiral eyes, bristling → full berserk.
+- **Level 4 (Müller-Lyer)** — *Nogo intervenes*. A berserk dog next to his alley is bad for business, so Nogo distracts the Chef and lays a trail of ribboned bones, each looking longer than it is, all the way back home. Sheet: berserk with a ribbon caught on one ear → calming, ribbon bandana → exhausted and sheepish at the gate.
+- **Level 5** — *scolded, then trained*. Doggo is told off for running away and the training begins; this is the bridge into the Go/No-go level below. The Ebbinghaus task currently in `level5.js` predates this plan and will be reframed or moved.
 
-**Parked alternative**: instead of (or in addition to) evolving Doggo, show Nogo's face in a top corner of the HUD and have *him* degrade comically at each phase break — increasingly dishevelled, ribbon-tangled, and finally rolled up in his own yarn. More screen furniture and one more art set per level, but it would make the villain's defeat the progress signal; worth revisiting once the arc has final art.
+**Parked story ideas** (kept for later levels):
+
+- *The kennel people return.* The criminals from the Level 1 raid lure strays with thrown bones; keep this for a level close to the end, since their defeat makes a good finale.
+- *The fairground.* A rigged "pick the bigger bone" booth: illusions as carnival trickery, ribbons as bunting, rings of balls as the ring-toss, with Nogo as the carnival cat.
+- *Nogo in the HUD.* Instead of (or in addition to) evolving Doggo, show Nogo's face in a top corner and have *him* degrade comically at each phase break, so the villain's defeat is the progress signal. More screen furniture and one more art set per level.
 
 ### Future Levels
 
-Go/No-go: Doggo needs to be trained to receive his badge. He gets a collar with a medal at the end of it.
+Go/No-go: after Level 5's scolding, Doggo is trained to follow commands (fetch on "GO", hold on "STAY" or the whistle) to earn his badge. He gets a collar with a medal at the end of it.
 
 ### Adaptive Design
 

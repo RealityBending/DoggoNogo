@@ -48,8 +48,9 @@
 
 import { DoggoNogoCore, DoggoNogoUI } from "./game.js"
 
-const REF_W = 1792
-const REF_H = 1024
+// Design canvas (16:9); see the note on `REF_W` in game.js.
+const REF_W = 1920
+const REF_H = 1080
 
 export const DoggoNogoBaseLevel = {
     // Default start/response keys (single-response simple RT). Override per level.
@@ -184,7 +185,7 @@ export const DoggoNogoBaseLevel = {
 
         // Stage: artwork + scrim + vignette
         const bg = this.assets.imgBackground
-        if (bg && bg.complete) ctx.drawImage(bg, 0, 0, w, h)
+        if (bg && bg.complete && bg.naturalWidth) fx.drawImageCover(ctx, bg, 0, 0, w, h)
         else {
             ctx.fillStyle = theme.bgDeep
             ctx.fillRect(0, 0, w, h)
@@ -470,7 +471,7 @@ export const DoggoNogoBaseLevel = {
     },
 
     drawBackground: function () {
-        this.state.ctx.drawImage(this.assets.imgBackground, 0, 0, this.state.canvas.width, this.state.canvas.height)
+        DoggoNogoUI.fx.drawImageCover(this.state.ctx, this.assets.imgBackground, 0, 0, this.state.canvas.width, this.state.canvas.height)
     },
 
     drawScoreFeedback: function () {
@@ -828,10 +829,18 @@ export const DoggoNogoBaseLevel = {
         }
     },
 
-    /** Evolution beat of a phase break: swap to the phase sprite, burst sparkles, play the sound. */
+    /**
+     * Evolution beat of a phase break: swap to the phase sprite (and the phase background, when
+     * the level has one per phase as `assets.imgBackground{1,2,3}`), burst sparkles, play the sound.
+     */
     playBreakEffects: function () {
         const phaseSprite = this.assets["imgPlayer" + (this.state.phaseIndex + 1)]
         if (phaseSprite) this.assets.imgPlayer = phaseSprite
+        const phaseBackground = this.assets["imgBackground" + (this.state.phaseIndex + 1)]
+        if (phaseBackground && phaseBackground.naturalWidth) {
+            this.assets.imgBackground = phaseBackground
+            DoggoNogoUI.ambient.set(phaseBackground)
+        }
         const sparkles = this.params.breakSparkles
         if (sparkles) {
             const cx = this.state.player.x + this.state.player.width / 2

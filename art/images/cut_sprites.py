@@ -120,6 +120,7 @@ GAME_ASSETS = _repo_root(HERE) / "game" / "assets"
 SHEETS = [
     {"sheet": "level1_player_v1", "level": "level1"},
     {"sheet": "level2_player_v1", "level": "level2", "mirror": True},
+    {"sheet": "level3_player_v1", "level": "level3"},
 ]
 
 # Extensions a sheet may arrive in, in the order they are tried when the name is

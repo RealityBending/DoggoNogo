@@ -74,8 +74,10 @@
  * Phase targets are fixed: perPhaseTrials = ceil(trialsNumber/3); each phase target =
  * perPhaseTrials * minScore.
  *
- * Sprites and sounds are borrowed from Level 1 for now (see `borrowedLevel1Assets`) — no
- * `assets/level3+/` folders exist yet, and the stimuli need no asset at all.
+ * Feedback bubbles and sounds are borrowed from Level 1 (see `borrowedLevel1Assets`), and so are the
+ * player sprites until a level has its own: a level that sets `artFolder` (Level 3: `"level3"`) takes
+ * its `player_1..3.webp` from that folder instead, and one that also sets `backgrounds` gets a scene
+ * per phase rather than the flat backdrop. The stimuli themselves need no asset at all.
  */
 
 import { DoggoNogoBaseLevel } from "../core.js"
@@ -137,9 +139,12 @@ export function illusionDefaultParams() {
 }
 
 /**
- * Fresh set of the Level 1 assets the illusion levels borrow while they have no art of their own.
- * Their own sprites are prompted in prompts/make_prompts.py (step 6, one evolution sheet per
- * level); once generated into assets/level{3,4,5}/, point each level's `load` at them.
+ * Fresh set of the Level 1 assets the illusion levels borrow. Feedback bubbles and sounds stay
+ * borrowed (there is no illusion-level feedback art yet); the player sprites are only a stand-in for
+ * a level with no sheet of its own — set `artFolder` once its sheet is generated (art/make_prompts.py
+ * prompts one evolution sheet per level) and cut into assets/level{3,4,5}/. A level with per-phase
+ * scenes adds its own `imgBackground` / `imgBackground1..N` images (see level3.js), since the levels
+ * without art draw the plain `params.backgroundColor` instead.
  */
 export function borrowedLevel1Assets() {
     return {
@@ -160,9 +165,8 @@ export function borrowedLevel1Assets() {
         soundEvolve: new Audio(),
         soundLevelUp: new Audio(),
         soundStart: new Audio(),
-        // Cover screen assets (shared)
+        // Cover screen art (shared); the title itself is drawn in code by the engine.
         imgCover: new Image(),
-        imgCoverText: new Image(),
     }
 }
 
@@ -252,12 +256,22 @@ export const DoggoNogoIllusionLevel = {
         }
     },
 
-    /** Loads the borrowed (Level 1) assets and resolves once ready, then computes dimensions. */
+    /**
+     * Loads the level's assets and resolves once ready, then computes dimensions.
+     *
+     * The feedback art and the sounds are Level 1's for every illusion level. The player sprites
+     * come from `this.artFolder` when the level has a sheet of its own (Level 3) and from Level 1
+     * otherwise, and `this.backgrounds` — one path per phase — is loaded into
+     * `assets.imgBackground1..N`, which the base `playBreakEffects` swaps at each break. The first
+     * scene is made current here rather than in `start`, so the instruction screen and the engine's
+     * ambient surround already show the level's own artwork.
+     */
     load: function (canvas, options) {
         const base = (options && options.assetBasePath) || ""
-        this.assets.imgPlayer1.src = base + "level1/player_1.webp"
-        this.assets.imgPlayer2.src = base + "level1/player_2.webp"
-        this.assets.imgPlayer3.src = base + "level1/player_3.webp"
+        const sprites = this.artFolder || "level1"
+        this.assets.imgPlayer1.src = `${base}${sprites}/player_1.webp`
+        this.assets.imgPlayer2.src = `${base}${sprites}/player_2.webp`
+        this.assets.imgPlayer3.src = `${base}${sprites}/player_3.webp`
         this.assets.imgFeedbackSlow.src = base + "level1/feedback_slow1.png"
         this.assets.imgFeedbackLate.src = base + "level1/feedback_late1.png"
         this.assets.imgFeedbackEarly.src = base + "level1/feedback_early1.png"
@@ -271,8 +285,17 @@ export const DoggoNogoIllusionLevel = {
         this.assets.soundEvolve.src = base + "level1/sound_evolve.mp3"
         this.assets.soundStart.src = base + "sound_start.mp3"
         this.assets.soundLevelUp.src = base + "sound_levelup.mp3"
-        this.assets.imgCover.src = base + "cover1_noText.png"
-        this.assets.imgCoverText.src = base + "text.png"
+        this.assets.imgCover.src = base + "cover.webp"
+
+        // Per-phase scenes, when the level has them. Missing `imgBackgroundN` images would mean the
+        // level listed more scenes than it declared in `assets`, which is a wiring mistake worth
+        // hearing about rather than a silently grey phase.
+        const backgrounds = (this.backgrounds || []).map((file, i) => {
+            const img = this.assets["imgBackground" + (i + 1)]
+            if (!img) throw new Error(`level ${this.levelNumber}: no assets.imgBackground${i + 1} for ${file}`)
+            img.src = base + file
+            return img
+        })
 
         const assetRefs = [
             this.assets.imgPlayer1,
@@ -292,17 +315,26 @@ export const DoggoNogoIllusionLevel = {
             this.assets.soundLevelUp,
             this.assets.soundStart,
             this.assets.imgCover,
-            this.assets.imgCoverText,
+            ...backgrounds,
         ]
         return DoggoNogoCore.loadAssets(assetRefs, options && options.onProgress).then(() => {
+            if (backgrounds.length) this.assets.imgBackground = backgrounds[0]
             this.initializeDimensions(canvas)
             this.placePlayer(canvas)
         })
     },
 
-    /** Plain grey backdrop (these levels have no background image). */
+    /**
+     * The level's current scene when it declared any (`backgrounds`, swapped per phase by
+     * `playBreakEffects`), otherwise the plain grey backdrop the illusion levels started with.
+     */
     drawBackground: function () {
         const ctx = this.state.ctx
+        const bg = this.assets.imgBackground
+        if (bg && bg.complete && bg.naturalWidth) {
+            DoggoNogoUI.fx.drawImageCover(ctx, bg, 0, 0, this.state.canvas.width, this.state.canvas.height)
+            return
+        }
         ctx.fillStyle = this.params.backgroundColor
         ctx.fillRect(0, 0, this.state.canvas.width, this.state.canvas.height)
     },
@@ -341,6 +373,8 @@ export const DoggoNogoIllusionLevel = {
         this.setPhaseTargets([targetPerPhase, targetPerPhase, targetPerPhase])
         window[`level${this.levelNumber}Data`] = this.state.data
         this.assets.imgPlayer = this.assets.imgPlayer1
+        // A re-run starts at phase 1, so the scene has to go back with the sprite.
+        if (this.assets.imgBackground1) this.assets.imgBackground = this.assets.imgBackground1
         this.startNewTrial()
     },
 

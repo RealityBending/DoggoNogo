@@ -18,8 +18,8 @@ function normalizeBasePath(p) {
     return out
 }
 
-// Compute a canvas size that preserves the target 1792x1024 aspect ratio while fitting in the viewport.
-function computeResponsiveSize(targetW = 1792, targetH = 1024) {
+// Compute a canvas size that preserves the target 1920x1080 (16:9) aspect ratio while fitting in the viewport.
+function computeResponsiveSize(targetW = 1920, targetH = 1080) {
     const ASPECT = targetW / targetH
     const maxW = window.innerWidth || targetW
     const maxH = window.innerHeight || targetH
@@ -38,11 +38,11 @@ export const DoggoNogo = {
     // The game trial using call-function. Keeps the game decoupled from jsPsych.
     createGameTrial: function ({
         jsPsych, // the instance returned by initJsPsych()
-        width, // optional; if omitted we'll auto-compute maintaining 1792x1024 aspect
+        width, // optional; if omitted we'll auto-compute maintaining 1920x1080 aspect
         height, // optional; ignored if width omitted (auto mode)
         maintainAspect = true,
-        targetAspectWidth = 1792,
-        targetAspectHeight = 1024,
+        targetAspectWidth = 1920,
+        targetAspectHeight = 1080,
         assetBasePath = "game/assets/",
         levelGetter = () => level1,
         trialsNumber,
@@ -85,8 +85,8 @@ export const DoggoNogo = {
                     h = Math.round(w * (targetAspectHeight / targetAspectWidth))
                 }
                 if (!fullscreen) {
-                    canvas.width = w || 1792
-                    canvas.height = h || 1024
+                    canvas.width = w || 1920
+                    canvas.height = h || 1080
                 } else {
                     // Temporary size; engine will resize & inject styles
                     canvas.width = window.innerWidth

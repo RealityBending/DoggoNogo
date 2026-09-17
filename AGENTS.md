@@ -32,7 +32,7 @@ no npm, no transpile step**. Serve the repo over HTTP and open the entry point i
 | `game/levels/level1.js` | `level1` | Simple RT task. Inherits `DoggoNogoBaseLevel`; defines only level-1 specifics. |
 | `game/levels/level2.js` | `level2` | Simon task. Inherits `DoggoNogoBaseLevel`; defines only level-2 specifics. |
 | `game/levels/illusion.js` | `DoggoNogoIllusionLevel`, `illusionDefaultParams`, `borrowedLevel1Assets` | Shared logic for the illusion levels (3–5): the 2AFC size-comparison task ported from the Illusion Game, the two signed per-trial parameters (`TaskDifficulty` = objective difference, sign → correct side; `IllusionStrength` = illusion magnitude, sign → congruent −/incongruent +), the 3-phase difficulty/strength ramp, and the shared instruction screen (on the base's animated frame; each level supplies `instructionTitle`, `instructionLines` and a `drawInstructionDemo` laid out at x = 0.3 / 0.7). Sits between `DoggoNogoBaseLevel` and the concrete levels; see its header for the per-level hooks. |
-| `game/levels/level3.js` | `level3` | Vertical–horizontal illusion (tilted vs horizontal bone). Inherits `DoggoNogoIllusionLevel`; standalone-only for now (no jsPsych wrapper). |
+| `game/levels/level3.js` | `level3` | Vertical–horizontal illusion (tilted vs horizontal bone). Inherits `DoggoNogoIllusionLevel`; the only illusion level with art of its own so far — `artFolder: "level3"` (its own evolution sheet) plus `backgrounds` (one scene per phase), both consumed by the shared `load`, and `params.boneOutlines` so a white bone keeps its edge over painted scenery. Standalone-only for now (no jsPsych wrapper). |
 | `game/levels/level4.js` | `level4` | Müller-Lyer illusion (ribbon blades at the bone tips, drawn behind the bone). Inherits `DoggoNogoIllusionLevel`; standalone-only for now. |
 | `game/levels/level5.js` | `level5` | Ebbinghaus illusion (target discs in rings of context discs; geometry ported from Pyllusion — note its `TaskDifficulty` is an AREA proportion, unlike the length proportions of L3/L4). Plain circles pending assets/narrative. Inherits `DoggoNogoIllusionLevel`; standalone-only for now. |
 | `game/levels/cutscenes.js` | `level1Cutscene` … `level5Cutscene` | Cutscene step definitions consumed by `CutsceneRunner`. Levels 3–5 are tentative: minimal text with `[ ART: ... ]` text steps standing in for artwork to be made. |
@@ -100,7 +100,17 @@ untouched. The end-of-level `DoggoNogoUI.showScoreScreen` loops indefinitely (co
 until `cancelScoreScreen()`. Title-style text goes through a sprite cache in `game.js`
 (`getTextSprite`): glow text is rasterized once per (text, size, style) and blitted per frame —
 animate its size with `opts.scale`, never by varying `px` per frame (that defeats the cache and
-re-shapes the font every frame, which is what made the phase banner stutter).
+re-shapes the font every frame, which is what made the phase banner stutter). It also bakes the
+optional arcade extras (`outline`/`outlineWidth`, `hardShadow`/`hardShadowDx`/`hardShadowDy`)
+into the sprite, and `fx.measureGlowText` reports a string's drawn width so a lockup can be
+fitted to the canvas rather than sized by guesswork — the retro faces and their system
+fallbacks have very different metrics.
+
+The title screen (`engine.showCoverScreen`) is drawn entirely in code over `assets/cover.webp`:
+there is no title image. The DOGGO/NOGO wordmark, its subtitle, the rule and the light sweep all
+live in that one function, laid out from measured text so they stay in the open sky between the
+two characters at any canvas size. The artwork is generated without lettering (see the `cover`
+spec in `prompts/make_prompts.py`).
 
 Cutscene input (`cutscene.js`): tapping SPACE (release before ~800 ms) advances one step
 (`advanceStep`: bumps `stepSeq` to kill the running step animation; `nextStep()` runs
@@ -115,7 +125,7 @@ Useful base override hooks: `updateStimulusMotion()`, `getBreakOverlayLines()`,
 `getStimulusAspectImage()`, `endOverlayTitle`, plus standardized flash fields
 `state.flashUntil` / `params.flashDuration` / `params.flashTintColor`. The phase break itself is
 data-driven: `params.breakSparkles` (particle config + `count`), `params.breakEffectsDelay`,
-`params.breakTextDelay`, `assets.soundEvolve`, and `assets.imgPlayer{1,2,3}` (swapped by phase).
+`params.breakTextDelay`, `assets.soundEvolve`, `assets.imgPlayer{1,2,3}` (swapped by phase) and, when a level defines them, `assets.imgBackground{1,2,3}` (Level 3's terrace / kitchen door / kitchen; the swap also updates `DoggoNogoUI.ambient`).
 
 ## Control flow (one run)
 
@@ -146,7 +156,7 @@ index.html / jspsych.js
   remember both levels inherit the base.
 - **One-time flags** (`globalPreloaded` / `otherLevelsPreloaded` in `engine.js`,
   `phaseCompleteAudio` in `game.js`) are plain module-scoped variables.
-- **Reference resolution** uses `1792×1024` as the design canvas; fonts/positions scale from it.
+- **Reference resolution** uses `1920×1080` (16:9) as the design canvas; fonts/positions scale from it. Backgrounds are still generated at the image model's 7:4 and drawn with `fx.drawImageCover` (crop, never stretch); on screens of another shape `game/index.html` fills the letterbox with a blurred copy of the scene that the engine announces through `DoggoNogoUI.ambient`.
 - **Time** comes from `level.now()`, which uses the host jsPsych clock when the engine was given a
   `jsPsych` instance and otherwise falls back to `performance.now()` then `Date.now()`. Use it, not
   `Date.now()` directly, for RT consistency.
@@ -221,8 +231,8 @@ python -m http.server 8000
 To work on a later level without playing through the earlier ones, append `?level=N` to that URL
 (`?level=4` starts at Level 4, cover screen included). `START_LEVEL` in `game/index.html` is the
 same switch without the query string; opening the page with no `level` param applies it and writes
-it into the address bar. **`START_LEVEL` is currently 3 while the illusion levels are being built —
-set it back to 1 before shipping.**
+it into the address bar. Leave `START_LEVEL` at 1 when shipping; bump it only while working on a
+later level, and put it back.
 
 There is no automated test suite; verification is manual (play through the levels, check
 `window.level1Data` … `window.level5Data` in the console for the data log).

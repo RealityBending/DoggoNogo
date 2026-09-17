@@ -42,8 +42,10 @@ function warnIfUnserved() {
 const preloadedAudio = []
 const preloadedImages = []
 
-const REF_W = 1792
-const REF_H = 1024
+// Design canvas: 16:9, the aspect of nearly every screen the game runs on. (It was 7:4, which is
+// what the image model outputs; that left letterbox bars on every real display.)
+const REF_W = 1920
+const REF_H = 1080
 function scaleFontPx(base, canvas) {
     // Scale relative to width to keep proportions; clamp for readability
     const factor = (canvas.width / REF_W + canvas.height / REF_H) / 2
@@ -118,6 +120,26 @@ function roundRectPath(ctx, x, y, w, h, r) {
     ctx.arcTo(x, y + h, x, y, rr)
     ctx.arcTo(x, y, x + w, y, rr)
     ctx.closePath()
+}
+
+/**
+ * Draws `img` scaled to COVER the rectangle (x, y, w, h): the image keeps its own aspect ratio
+ * and whatever overflows is cropped equally on both sides, like CSS `object-fit: cover`.
+ *
+ * Every background is painted this way rather than stretched to the canvas. The artwork comes
+ * out of the image model at 7:4 while the stage is 16:9, and stretching would squash it by a
+ * couple of percent; covering crops a sliver off the top and bottom instead, which nothing in
+ * the scenes places anything essential in. `opts.focusY` (0..1, default 0.5) picks which part
+ * survives a vertical crop.
+ */
+function drawImageCover(ctx, img, x, y, w, h, opts = {}) {
+    if (!img || !img.naturalWidth || !img.naturalHeight || w <= 0 || h <= 0) return
+    const scale = Math.max(w / img.naturalWidth, h / img.naturalHeight)
+    const sw = w / scale
+    const sh = h / scale
+    const sx = (img.naturalWidth - sw) / 2
+    const sy = (img.naturalHeight - sh) * (opts.focusY ?? 0.5)
+    ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h)
 }
 
 /**
@@ -268,8 +290,16 @@ function getTextSprite(text, px, opts = {}) {
     const glow = opts.glow || "rgba(0,0,0,0.85)"
     const glowSize = opts.glowSize ?? 0.25
     const letterSpacing = opts.letterSpacing || "0px"
+    // Optional arcade-marquee extras (used by the title lockup): a hard keyline around the
+    // glyphs and a flat offset shadow behind them. Both are baked into the sprite, so they
+    // cost nothing per frame; leaving them off reproduces the plain glow text exactly.
+    const outline = opts.outline || null
+    const outlineWidth = opts.outlineWidth ?? 0.14 // fraction of the font size
+    const hardShadow = opts.hardShadow || null
+    const hardShadowDx = opts.hardShadowDx ?? 0
+    const hardShadowDy = opts.hardShadowDy ?? 0.09
     const sizePx = Math.max(1, Math.round(px))
-    const key = [text, sizePx, weight, font, color, glow, glowSize, letterSpacing].join("|")
+    const key = [text, sizePx, weight, font, color, glow, glowSize, letterSpacing, outline, outlineWidth, hardShadow, hardShadowDx, hardShadowDy].join("|")
     const hit = textSpriteCache.get(key)
     if (hit) return hit
     // Sprites are keyed by canvas size among other things; a resize repopulates the cache,
@@ -287,21 +317,55 @@ function getTextSprite(text, px, opts = {}) {
     }
     setFont()
     const textW = g.measureText(text).width
-    const pad = Math.ceil(sizePx * (glowSize + 0.3))
+    // The keyline is centered on the glyph edge and the drop shadow sits outside it, so both
+    // widen the sprite; without the extra padding they would be clipped at the sprite's edge.
+    const strokePx = outline ? Math.max(1, sizePx * outlineWidth) : 0
+    const sdx = hardShadow ? sizePx * hardShadowDx : 0
+    const sdy = hardShadow ? sizePx * hardShadowDy : 0
+    const pad = Math.ceil(sizePx * (glowSize + 0.3) + strokePx + Math.max(Math.abs(sdx), Math.abs(sdy)))
     c.width = Math.max(1, Math.ceil(textW) + pad * 2)
     c.height = Math.max(1, Math.ceil(sizePx * 1.5) + pad * 2)
     setFont() // resizing a canvas resets its context state
     g.textAlign = "left"
     g.textBaseline = "alphabetic"
+    g.lineJoin = "round"
+    g.lineCap = "round"
+    const baselineY = pad + sizePx
+    // Flat offset shadow first: the glyph silhouette (fill plus keyline, so it matches the
+    // outlined shape rather than the thinner letterform inside it).
+    if (hardShadow) {
+        g.fillStyle = hardShadow
+        g.strokeStyle = hardShadow
+        g.lineWidth = strokePx
+        if (strokePx) g.strokeText(text, pad + sdx, baselineY + sdy)
+        g.fillText(text, pad + sdx, baselineY + sdy)
+    }
     g.shadowColor = glow
     g.shadowBlur = sizePx * glowSize
     g.shadowOffsetY = sizePx * 0.04
+    // The halo belongs to the outermost layer, so it goes on the keyline when there is one
+    // and is then switched off, or the fill would stamp a second halo over the keyline.
+    if (outline) {
+        g.strokeStyle = outline
+        g.lineWidth = strokePx
+        g.strokeText(text, pad, baselineY)
+        g.shadowColor = "transparent"
+    }
     g.fillStyle = color
-    const baselineY = pad + sizePx
     g.fillText(text, pad, baselineY)
     const sprite = { canvas: c, pad, baselineY, textW }
     textSpriteCache.set(key, sprite)
     return sprite
+}
+
+/**
+ * Width of the glyphs `drawGlowText` would draw at `px`, before `opts.scale`. Lets a caller
+ * lay out a multi-part lockup (and fit it to the canvas) without measuring text itself —
+ * which matters because the retro faces and their system fallbacks have very different
+ * metrics, so the same string is not the same width everywhere.
+ */
+function measureGlowText(text, px, opts = {}) {
+    return getTextSprite(text, px, opts).textW
 }
 
 /**
@@ -397,9 +461,11 @@ export const DoggoNogoUI = {
     theme: THEME,
     fx: {
         roundRectPath,
+        drawImageCover,
         drawPanel,
         drawKeycap,
         drawGlowText,
+        measureGlowText,
         drawVignette,
         drawPromptRow,
         drawTitleRule,
@@ -407,6 +473,38 @@ export const DoggoNogoUI = {
         easeOutBack,
         pulse01,
         scaleFontPx,
+    },
+
+    /**
+     * The artwork currently on stage, for whatever frames the canvas to paint behind it.
+     *
+     * The stage keeps a fixed aspect for the sake of the measurements, so on any screen of a
+     * different shape there is a letterbox. A flat colour there reads as bars; the host page
+     * (`game/index.html`) instead paints a blurred, darkened, cover-scaled copy of the current
+     * scene into it, the way video players extend a picture. The engine calls `set()` at each
+     * scene change (cover art, cutscene, level background, phase-break swap, score screen) and
+     * the host subscribes with `onChange()`. `null` means "nothing on stage", and the host falls
+     * back to its plain gradient. Embedded hosts that don't subscribe are unaffected.
+     */
+    ambient: {
+        image: null,
+        _listeners: new Set(),
+        set(img) {
+            const next = img && img.naturalWidth ? img : null
+            if (next === this.image) return
+            this.image = next
+            this._listeners.forEach((fn) => {
+                try {
+                    fn(next)
+                } catch (e) {
+                    console.debug("ambient listener failed", e)
+                }
+            })
+        },
+        onChange(fn) {
+            this._listeners.add(fn)
+            return () => this._listeners.delete(fn)
+        },
     },
 
     /**

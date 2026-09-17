@@ -24,13 +24,15 @@ export const level1Cutscene = [
     { type: "wait", duration: 1000 },
 ]
 
+// Level 2 introduces Nogo on his own terms: a cut to the other side of town, not a watcher in
+// Doggo's shadows. The two are deliberately not connected yet; the story brings them together
+// later, and an early "someone has been watching Doggo" gave that away in the first line.
 export const level2Cutscene = [
     { type: "fill", color: "black" },
     { type: "wait", duration: 1000 },
-    // The two opening lines sit high, just under the top letterbox bar, so the cat has the
-    // middle of the frame to himself.
-    { type: "text", what: "However, someone has been watching with great attention", animation: "appear", y: 23 },
-    { type: "text", what: "the arrival of DOGGO...", animation: "appear", y: 31 },
+    // The opening line sits high, just under the top letterbox bar, so the cat has the middle
+    // of the frame to himself.
+    { type: "text", what: "Meanwhile, on the other side of town...", animation: "appear", y: 27 },
     { type: "wait", duration: 2000 },
     // Nogo's own sprite surfacing out of the dark, rather than a separate pair-of-eyes asset:
     // `emerge` grows the reveal from `focus`, which is aimed at his eyes (0.36, 0.69 of the
@@ -39,22 +41,22 @@ export const level2Cutscene = [
     // with an asset and a prompt of its own.
     //
     // Placement: his ink starts ~20% down its box, so with a 40%-tall box centred at 53% the
-    // tail tip lands at ~41% - clear of the second line above - and the paws at 73%, leaving room
-    // for the two closing lines below without touching the bottom bar.
+    // tail tip lands at ~41% - clear of the line above - and the paws at 73%, leaving room for
+    // the two closing lines below without touching the bottom bar.
     { type: "image", what: "level2/player_1.webp", animation: "emerge", duration: 2600, height: 40, y: 53, focus: { x: 0.36, y: 0.69 } },
     { type: "wait", duration: 2200 },
-    // Both closing lines land under Nogo on one page, so the name and the threat are read with
+    // Both closing lines land under Nogo on one page, so the name and the appetite are read with
     // the cat in view rather than over black.
     //
-    // The `fill` is what clears the two earlier lines - nothing else on a black stage does, since
-    // a text step only repaints the background and sprite over what is already on the canvas. But
+    // The `fill` is what clears the opening line - nothing else on a black stage does, since a
+    // text step only repaints the background and sprite over what is already on the canvas. But
     // `fill` also drops the sprite, so Nogo is immediately re-placed at the same size and position,
     // with `appear` rather than a fade: he is already revealed, this is the same shot continuing.
     { type: "fill", color: "black" },
     { type: "image", what: "level2/player_1.webp", animation: "appear", height: 40, y: 53 },
-    { type: "text", what: "This someone's name is NOGO", animation: "appear", y: 80 },
+    { type: "text", what: "This is NOGO, the alley cat.", animation: "appear", y: 80 },
     { type: "wait", duration: 1800 },
-    { type: "text", what: "And now, he is hungry too...", animation: "appear", y: 88 },
+    { type: "text", what: "And tonight, he is hungry.", animation: "appear", y: 88 },
     { type: "wait", duration: 2600 },
 ]
 
@@ -63,38 +65,63 @@ export const level2Cutscene = [
 // does not exist yet. Replace each placeholder with an `image` step once the asset is made; the
 // grey colour and smaller size mark them as stage directions rather than narration. Each
 // placeholder's target file is noted next to it; the generation prompts live in
-// prompts/make_prompts.py (pipeline step 7, "Illusion arc: cutscene panels").
+// prompts/make_prompts.py, under the step for the level they belong to.
 const artPlaceholder = (what) => ({ type: "text", what: `[ ART: ${what} ]`, animation: "appear", y: 45, color: "#8b98ab", fontSize: 28 })
 
+// Level 3 - "Bone fever": a bone thrown from a passing car, and Doggo cannot help himself.
+// The level itself is his descent (terrace -> kitchen door -> kitchen, one background per
+// phase), so the cutscene only has to get him out of the gate.
 export const level3Cutscene = [
     { type: "fill", color: "black" },
     { type: "wait", duration: 800 },
-    { type: "text", what: "Nogo has learned he cannot outrun Doggo.", animation: "appear", y: 40 },
-    { type: "wait", duration: 2200 },
-    { type: "text", what: "So he turns to trickery...", animation: "appear", y: 50 },
+    { type: "text", what: "Life at the new home is good. Doggo has everything a dog could want.", animation: "appear", y: 40 },
+    { type: "wait", duration: 2400 },
+    { type: "text", what: "Almost.", animation: "appear", y: 50 },
+    { type: "wait", duration: 1600 },
+    { type: "fill", color: "black" },
+    artPlaceholder("the garden gate seen from the street, a car speeding past, a bone flying out of its window"), // -> level3/cutscene_car.png
+    { type: "wait", duration: 1500 },
+    { type: "text", what: "One afternoon, a car speeds past the garden...", animation: "appear", y: 72 },
+    { type: "wait", duration: 2000 },
+    { type: "text", what: "...and someone throws a bone out of the window.", animation: "appear", y: 82 },
     { type: "wait", duration: 2200 },
     { type: "fill", color: "black" },
-    artPlaceholder("the lawn at dusk, bones scattered at odd angles"), // -> level3/cutscene_bones.png
+    artPlaceholder("Doggo bolting through the open gate into the street, ears flying"), // -> level3/cutscene_gate.png
     { type: "wait", duration: 1500 },
-    { type: "text", what: "Overnight, bones appear all over the lawn. None lying straight.", animation: "appear", y: 72 },
-    { type: "wait", duration: 2200 },
-    { type: "text", what: "Trust your eyes... if you can.", animation: "appear", y: 82 },
+    { type: "text", what: "Doggo doesn't think. Doggo runs.", animation: "appear", y: 72 },
+    { type: "wait", duration: 2000 },
+    { type: "text", what: "Down the street, round the corner, into the city... following the bone.", animation: "appear", y: 82 },
     { type: "wait", duration: 2400 },
+    { type: "fill", color: "black" },
+    { type: "text", what: "Then the next one.", animation: "reveal", duration: 900, y: 46 },
+    { type: "wait", duration: 1400 },
+    { type: "text", what: "There is always a bigger bone.", animation: "reveal", duration: 900, y: 56 },
+    { type: "wait", duration: 2200 },
 ]
 
+// Level 4 - Nogo intervenes: a berserk dog next to his alley is bad for business, so he
+// distracts the Chef and lays a trail of ribboned bones home. Ribbons bend the eye
+// (Muller-Lyer), which is the level's illusion.
 export const level4Cutscene = [
     { type: "fill", color: "black" },
     { type: "wait", duration: 800 },
-    artPlaceholder("Nogo grinning, a spool of red ribbon in his paws"), // -> level4/cutscene_ribbon.png
-    { type: "wait", duration: 1500 },
-    { type: "text", what: "The tilted bones didn't fool Doggo for long.", animation: "appear", y: 72 },
+    { type: "text", what: "Next door, in the alley, someone has heard the crashing pots.", animation: "appear", y: 40 },
     { type: "wait", duration: 2200 },
-    { type: "text", what: "So Nogo raids the gift box...", animation: "appear", y: 82 },
+    { type: "text", what: "A berserk dog in HIS neighbourhood? Bad for business.", animation: "appear", y: 50 },
+    { type: "wait", duration: 2400 },
+    { type: "fill", color: "black" },
+    artPlaceholder("Nogo grinning, a spool of red ribbon in his paws, a pile of bones beside him"), // -> level4/cutscene_ribbon.png
+    { type: "wait", duration: 1500 },
+    { type: "text", what: "Nogo knocks over a tray of fish. The Chef turns. Doggo doesn't.", animation: "appear", y: 72 },
+    { type: "wait", duration: 2400 },
+    { type: "text", what: "So Nogo raids the gift shop instead...", animation: "appear", y: 82 },
     { type: "wait", duration: 2200 },
     { type: "fill", color: "black" },
     artPlaceholder("a bone tied with red ribbons, blades pointing every which way"), // -> level4/cutscene_bone_ribboned.png
     { type: "wait", duration: 1500 },
-    { type: "text", what: "Now every bone wears a ribbon. And ribbons bend the eye.", animation: "appear", y: 75 },
+    { type: "text", what: "A trail of ribboned bones, each looking bigger than the last, all the way home.", animation: "appear", y: 72 },
+    { type: "wait", duration: 2400 },
+    { type: "text", what: "Ribbons bend the eye. Doggo follows.", animation: "appear", y: 82 },
     { type: "wait", duration: 2600 },
 ]
 

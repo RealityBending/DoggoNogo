@@ -8,7 +8,7 @@
 
 export const DoggoNogoAssets = {
     shared: {
-        images: ["cover1_noText.png", "text.png"],
+        images: ["cover.webp"],
         audio: ["sound_levelup.mp3", "sound_phasecomplete.mp3", "sound_start.mp3"],
     },
     level1: {
@@ -55,6 +55,18 @@ export const DoggoNogoAssets = {
             "level2/sound_fast.mp3",
             "level2/sound_slow.mp3",
             "level2/Fishbone.mp3",
+        ],
+    },
+    // Level 3 borrows Level 1's feedback art and sounds (see `borrowedLevel1Assets` in
+    // levels/illusion.js), so only its own sprites and the three phase backgrounds are listed.
+    level3: {
+        images: [
+            "level3/player_1.webp",
+            "level3/player_2.webp",
+            "level3/player_3.webp",
+            "level3/background_1.webp",
+            "level3/background_2.webp",
+            "level3/background_3.webp",
         ],
     },
 }
