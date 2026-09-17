@@ -46,7 +46,7 @@ entry point in a browser.
 | `game/levels/level3.js` | `level3` | Vertical–horizontal illusion (tilted vs horizontal bone). Inherits `DoggoNogoIllusionLevel`; the only illusion level with art of its own so far — `artFolder: "level3"` (its own evolution sheet) plus `backgrounds` (one scene per phase), both consumed by the shared `load`, and `params.boneOutlines` so a white bone keeps its edge over painted scenery. Standalone-only for now (no jsPsych wrapper). |
 | `game/levels/level4.js` | `level4` | Müller-Lyer illusion (ribbon blades at the bone tips, drawn behind the bone). Inherits `DoggoNogoIllusionLevel`; standalone-only for now. |
 | `game/levels/level5.js` | `level5` | Ebbinghaus illusion (target discs in rings of context discs; geometry ported from Pyllusion — note its `TaskDifficulty` is an AREA proportion, unlike the length proportions of L3/L4). Plain circles pending assets/narrative. Inherits `DoggoNogoIllusionLevel`; standalone-only for now. |
-| `game/levels/cutscenes.js` | `level1Cutscene` … `level5Cutscene` | Cutscene step definitions consumed by `CutsceneRunner`. Levels 3–5 are tentative: minimal text with `[ ART: ... ]` text steps standing in for artwork to be made. |
+| `game/levels/cutscenes.js` | `level1Cutscene` … `level5Cutscene` | Cutscene step definitions consumed by `CutsceneRunner`. Levels 4–5 are tentative: minimal text with `[ ART: ... ]` text steps standing in for artwork to be made (Level 3's two panels are made and wired in). |
 | `game/jspsych.js` | `DoggoNogo` | jsPsych integration: builds the call-function trials that run a level. **Parked/stale** — see the note under Entry points. |
 
 ## The level interface (contract)

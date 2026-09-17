@@ -257,13 +257,13 @@ LEVEL3_ASSETS = [
         "style": "scene",
     },
     {
-        "file": "level3/cutscene_car.png",
+        "file": "level3/cutscene_car.webp",
         "name": "Cutscene - the car speeding past the garden gate",
         "style": "panel",
         "references": [BACKYARD],
     },
     {
-        "file": "level3/cutscene_gate.png",
+        "file": "level3/cutscene_gate.webp",
         "name": "Cutscene - Doggo bolting through the streets",
         "style": "panel",
         "references": [DOGGO_ADULT],
@@ -414,8 +414,8 @@ BRIEFS = {
     "level3/background_1.webp": "Background for game. Sunny pavement terrace of a small city restaurant: a few tables with checked tablecloths and empty chairs pushed back, plates with leftover bones, a striped awning, a chalkboard menu by the door, city buildings behind. Wide calm empty pavement in the middle.",
     "level3/background_2.webp": "Background for game. Back alley of a restaurant at golden hour: the kitchen's back door propped open with warm light and steam spilling out, a steamy kitchen window, stacked crates, a dustbin with a bin bag of bones spilling over. Wide calm empty middle.",
     "level3/background_3.webp": "Background for game. Inside the same restaurant's kitchen: steel counters along the walls, hanging pots and pans, a big stove with flames, bones scattered on the counters. At the far back a terrified Chef in a tall white hat is pressed against the wall, holding up a pot lid like a shield. Wide calm empty tiled floor in the middle.",
-    "level3/cutscene_car.png": "Cutscene panel. Seen from the pavement: the garden fence and gate of a sunny cottage, a car speeding past in a blur, and a white dog bone flying out of its window in an arc. Attached is a reference for the garden.",
-    "level3/cutscene_gate.png": "Cutscene panel. Close, low, cinematic shot: Doggo, an extra-fluffy australian shepherd dog with one floppy ear, seen from behind, filling the near frame at full sprint down the middle of a suburban road, ears flying, eyes locked on the car speeding away ahead of him; the city skyline on the horizon. Shallow depth of field and motion blur - Doggo sharp, the car, road and houses streaked with speed. Attached is a reference for Doggo.",
+    "level3/cutscene_car.webp": "Cutscene panel. Seen from the pavement: the garden fence and gate of a sunny cottage, a car speeding past in a blur, and a white dog bone flying out of its window in an arc. Attached is a reference for the garden.",
+    "level3/cutscene_gate.webp": "Cutscene panel. Close, low, cinematic shot: Doggo, an extra-fluffy australian shepherd dog with one floppy ear, seen from behind, filling the near frame at full sprint down the middle of a suburban road, ears flying, eyes locked on the car speeding away ahead of him; the city skyline on the horizon. Shallow depth of field and motion blur - Doggo sharp, the car, road and houses streaked with speed. Attached is a reference for Doggo.",
     # LEVEL 4 - Nogo intervenes
     "level4/player_1.webp + player_2.webp + player_3.webp": """
         Generate sprites for the main character: an extra-fluffy adult Black Tri Australian Shepherd dog with one floppy ear, blue eyes. Front-facing. Three versions of the same character, side by side, calming down from a bone frenzy.
@@ -469,8 +469,8 @@ DESCRIPTIONS = {
     "level3/background_1.webp": "Level 3 gameplay, phase 1: the pair of bones (one horizontal, one tilted) is drawn either side of Doggo at mid-height, so the middle band must stay quiet.",
     "level3/background_2.webp": "Level 3 gameplay, phase 2 (swapped in at the first phase break). Same layout constraints as phase 1.",
     "level3/background_3.webp": "Level 3 gameplay, phase 3 (swapped in at the second phase break). The Chef belongs at the back edge, out of the stimulus band.",
-    "level3/cutscene_car.png": "Level 3 cutscene panel: the bone thrown from the passing car. Narration lines are drawn over its lower quarter.",
-    "level3/cutscene_gate.png": "Level 3 cutscene panel: Doggo bolting through the streets. Narration lines over the lower quarter.",
+    "level3/cutscene_car.webp": "Level 3 cutscene panel: the bone thrown from the passing car. Narration lines are drawn over its lower quarter.",
+    "level3/cutscene_gate.webp": "Level 3 cutscene panel: Doggo bolting through the streets. Narration lines over the lower quarter.",
     # LEVEL 4 - Nogo intervenes
     "level4/player_1.webp + player_2.webp + player_3.webp": "Doggo's three Level 4 phases - calming down on the ribbon trail home - swapped at each phase break.",
     "level4/cutscene_ribbon.png": "Level 4 cutscene panel (sprite-style, centred on a dark stage): Nogo with the ribbon spool. Narration over the lower quarter.",

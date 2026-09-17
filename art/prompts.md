@@ -136,7 +136,7 @@ Classic 2D hand-drawn animation style, vintage 1950s-60s Disney storybook illust
 Output: 16:9 landscape, eye-level scene. Broad, calm open middle.
 ```
 
-### `level3/cutscene_car.png` - Cutscene - the car speeding past the garden gate
+### `level3/cutscene_car.webp` - Cutscene - the car speeding past the garden gate
 
 **In the game:** Level 3 cutscene panel: the bone thrown from the passing car. Narration lines are drawn over its lower quarter.
 
@@ -150,7 +150,7 @@ Classic 2D hand-drawn animation style, vintage 1950s-60s Disney storybook illust
 Output: 16:9 landscape, cinematic story panel, shown full-bleed. Compose it like a film still: close in on the action, with shallow depth of field and motion blur where they serve the shot. Nothing essential in the top 8% or the bottom quarter - the panel is letterboxed and the narration is drawn over its lower quarter.
 ```
 
-### `level3/cutscene_gate.png` - Cutscene - Doggo bolting through the streets
+### `level3/cutscene_gate.webp` - Cutscene - Doggo bolting through the streets
 
 **In the game:** Level 3 cutscene panel: Doggo bolting through the streets. Narration lines over the lower quarter.
 

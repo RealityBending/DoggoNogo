@@ -58,7 +58,8 @@ export const DoggoNogoAssets = {
         ],
     },
     // Level 3 borrows Level 1's feedback art and sounds (see `borrowedLevel1Assets` in
-    // levels/illusion.js), so only its own sprites and the three phase backgrounds are listed.
+    // levels/illusion.js), so only its own sprites, the three phase backgrounds and the two
+    // cutscene panels are listed.
     level3: {
         images: [
             "level3/player_1.webp",
@@ -67,6 +68,8 @@ export const DoggoNogoAssets = {
             "level3/background_1.webp",
             "level3/background_2.webp",
             "level3/background_3.webp",
+            "level3/cutscene_car.webp",
+            "level3/cutscene_gate.webp",
         ],
     },
 }

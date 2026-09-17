@@ -16,8 +16,14 @@ export const level1Cutscene = [
     { type: "wait", duration: 1000 },
     { type: "image", what: "level1/intro_background.webp", animation: "appear" },
     { type: "image", what: "level1/player_1.webp", animation: "appear" },
-    { type: "text", what: "A puppy has been forgotten!", animation: "appear", y: 80 },
-    { type: "text", what: "You decide to take him home, and name him...", animation: "appear", y: 90 },
+    // The two lines are successive pages at the same height, each held by its own `wait`. They
+    // cannot be stacked the way Level 2's closing pair is: there is a background image on the
+    // stage here, so every text step repaints the corridor (`redrawPersistent` in
+    // game/cutscene.js) and wipes whatever line was drawn before it. Without the wait below, the
+    // first line lasted a single frame.
+    { type: "text", what: "A small puppy has been forgotten!", animation: "appear", y: 80 },
+    { type: "wait", duration: 2200 },
+    { type: "text", what: "You decide to take him home, and name him...", animation: "appear", y: 80 },
     { type: "wait", duration: 2000 },
     { type: "fill", color: "black" },
     { type: "text", what: "Doggo", animation: "reveal", duration: 1000, fontSize: 96, background: "black", font: "display" },
@@ -65,7 +71,10 @@ export const level2Cutscene = [
 // does not exist yet. Replace each placeholder with an `image` step once the asset is made; the
 // grey colour and smaller size mark them as stage directions rather than narration. Each
 // placeholder's target file is noted next to it; the generation prompts live in
-// prompts/make_prompts.py, under the step for the level they belong to.
+// art/make_prompts.py, under the step for the level they belong to.
+//
+// Level 3's two panels have been made and are wired in below; Levels 4 and 5 are still standing
+// on placeholders.
 const artPlaceholder = (what) => ({ type: "text", what: `[ ART: ${what} ]`, animation: "appear", y: 45, color: "#8b98ab", fontSize: 28 })
 
 // Level 3 - "Bone fever": a bone thrown from a passing car, and Doggo cannot help himself.
@@ -79,18 +88,22 @@ export const level3Cutscene = [
     { type: "text", what: "Almost.", animation: "appear", y: 50 },
     { type: "wait", duration: 1600 },
     { type: "fill", color: "black" },
-    artPlaceholder("the garden gate seen from the street, a car speeding past, a bone flying out of its window"), // -> level3/cutscene_car.png
+    // Both panels are 16:9, so `CutsceneRunner` takes them as backgrounds and draws them
+    // full-bleed (game/cutscene.js `drawBackground`). A background repaints the frame, which
+    // means each narration line wipes the one before it - so the two lines under a panel are
+    // successive pages at the same height, not a stacked pair as on Level 2's black stage.
+    { type: "image", what: "level3/cutscene_car.webp", animation: "reveal", duration: 900 },
     { type: "wait", duration: 1500 },
-    { type: "text", what: "One afternoon, a car speeds past the garden...", animation: "appear", y: 72 },
+    { type: "text", what: "One afternoon, a car speeds past the garden...", animation: "appear", y: 80 },
     { type: "wait", duration: 2000 },
-    { type: "text", what: "...and someone throws a bone out of the window.", animation: "appear", y: 82 },
+    { type: "text", what: "...and someone throws a bone out of the window.", animation: "appear", y: 80 },
     { type: "wait", duration: 2200 },
     { type: "fill", color: "black" },
-    artPlaceholder("Doggo bolting through the open gate into the street, ears flying"), // -> level3/cutscene_gate.png
+    { type: "image", what: "level3/cutscene_gate.webp", animation: "reveal", duration: 900 },
     { type: "wait", duration: 1500 },
-    { type: "text", what: "Doggo doesn't think. Doggo runs.", animation: "appear", y: 72 },
+    { type: "text", what: "Doggo doesn't think. Doggo runs.", animation: "appear", y: 80 },
     { type: "wait", duration: 2000 },
-    { type: "text", what: "Down the street, round the corner, into the city... following the bone.", animation: "appear", y: 82 },
+    { type: "text", what: "Down the street, round the corner, into the city... following the bone.", animation: "appear", y: 80 },
     { type: "wait", duration: 2400 },
     { type: "fill", color: "black" },
     { type: "text", what: "Then the next one.", animation: "reveal", duration: 900, y: 46 },
