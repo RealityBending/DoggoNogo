@@ -272,13 +272,18 @@ export const DoggoNogoIllusionLevel = {
         this.assets.imgPlayer1.src = `${base}${sprites}/player_1.webp`
         this.assets.imgPlayer2.src = `${base}${sprites}/player_2.webp`
         this.assets.imgPlayer3.src = `${base}${sprites}/player_3.webp`
-        this.assets.imgFeedbackSlow.src = base + "level1/feedback_slow1.png"
-        this.assets.imgFeedbackLate.src = base + "level1/feedback_late1.png"
-        this.assets.imgFeedbackEarly.src = base + "level1/feedback_early1.png"
-        this.assets.imgFeedbackError.src = base + "level1/feedback_early1.png" // placeholder: no illusion-level error art yet
-        this.assets.imgFeedbackFast1.src = base + "level1/feedback_fast1.png"
-        this.assets.imgFeedbackFast2.src = base + "level1/feedback_fast2.png"
-        this.assets.imgFeedbackFast3.src = base + "level1/feedback_fast3.png"
+        this.assets.imgFeedbackSlow.src = base + "level1/feedback_slow1.webp"
+        this.assets.imgFeedbackLate.src = base + "level1/feedback_late1.webp"
+        this.assets.imgFeedbackEarly.src = base + "level1/feedback_early1.webp"
+        // The wrong-answer bubble is the illusion levels' own ("WRONG BONE!") rather than another
+        // borrow from Level 1, which is a simple RT task with no error art: pointing this at Level
+        // 1's EARLY bubble is what used to tell a wrong answer "TOO EARLY". It lives under level3/
+        // because Levels 3 and 4 both judge bone length and share this one file; Level 5 judges
+        // yarn balls and will want its own wording.
+        this.assets.imgFeedbackError.src = base + "level3/feedback_error1.webp"
+        this.assets.imgFeedbackFast1.src = base + "level1/feedback_fast1.webp"
+        this.assets.imgFeedbackFast2.src = base + "level1/feedback_fast2.webp"
+        this.assets.imgFeedbackFast3.src = base + "level1/feedback_fast3.webp"
         this.assets.soundFast.src = base + "level1/sound_fast.mp3"
         this.assets.soundSlow.src = base + "level1/sound_slow.mp3"
         this.assets.soundError.src = base + "level1/sound_early.mp3"

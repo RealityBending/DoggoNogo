@@ -265,7 +265,7 @@ export const level4Cutscene = [
     { type: "fill", color: "black" },
     artPlaceholder(
         "Nogo grinning, a spool of red ribbon in his paws, a pile of bones beside him",
-    ), // -> level4/cutscene_ribbon.png
+    ), // -> level4/cutscene_ribbon.webp
     { type: "wait", duration: 1500 },
     {
         type: "text",
@@ -284,7 +284,7 @@ export const level4Cutscene = [
     { type: "fill", color: "black" },
     artPlaceholder(
         "a bone tied with red ribbons, blades pointing every which way",
-    ), // -> level4/cutscene_bone_ribboned.png
+    ), // -> level4/cutscene_bone_ribboned.webp
     { type: "wait", duration: 1500 },
     {
         type: "text",
@@ -331,7 +331,7 @@ export const level5Cutscene = [
     },
     { type: "wait", duration: 1200 },
     { type: "fill", color: "black" },
-    artPlaceholder("Nogo in the middle of a yarn mess, winding decoy balls"), // -> level5/cutscene_yarn.png
+    artPlaceholder("Nogo in the middle of a yarn mess, winding decoy balls"), // -> level5/cutscene_yarn.webp
     { type: "wait", duration: 1500 },
     {
         type: "text",

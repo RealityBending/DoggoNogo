@@ -211,13 +211,13 @@ export const level2 = {
         this.assets.soundBackground.src = base + "level2/Fishbone.mp3"
         this.assets.soundStart.src = base + "sound_start.mp3"
         this.assets.imgCover.src = base + "cover.webp"
-        this.assets.imgFeedbackSlow.src = base + "level2/feedback_slow1.png"
-        this.assets.imgFeedbackLate.src = base + "level2/feedback_late1.png"
-        this.assets.imgFeedbackFast1.src = base + "level2/feedback_fast1.png"
-        this.assets.imgFeedbackFast2.src = base + "level2/feedback_fast2.png"
-        this.assets.imgFeedbackFast3.src = base + "level2/feedback_fast3.png"
-        this.assets.imgFeedbackError.src = base + "level2/feedback_error1.png"
-        this.assets.imgFeedbackEarly.src = base + "level2/feedback_early1.png"
+        this.assets.imgFeedbackSlow.src = base + "level2/feedback_slow1.webp"
+        this.assets.imgFeedbackLate.src = base + "level2/feedback_late1.webp"
+        this.assets.imgFeedbackFast1.src = base + "level2/feedback_fast1.webp"
+        this.assets.imgFeedbackFast2.src = base + "level2/feedback_fast2.webp"
+        this.assets.imgFeedbackFast3.src = base + "level2/feedback_fast3.webp"
+        this.assets.imgFeedbackError.src = base + "level2/feedback_error1.webp"
+        this.assets.imgFeedbackEarly.src = base + "level2/feedback_early1.webp"
         const assetRefs = [
             this.assets.imgPlayer1,
             this.assets.imgPlayer2,

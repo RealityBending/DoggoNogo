@@ -240,13 +240,21 @@ python -m http.server 8000
 ```
 
 To work on a later level without playing through the earlier ones, append `?level=N` to that URL
-(`?level=4` starts at Level 4, cover screen included). `START_LEVEL` in `game/index.html` is the
-same switch without the query string; opening the page with no `level` param applies it and writes
-it into the address bar. Leave `START_LEVEL` at 1 when shipping; bump it only while working on a
-later level, and put it back.
+(`?level=4` starts at Level 4, cover screen included, and carries on to the end). `START_LEVEL` in
+`game/index.html` is the same switch without the query string; opening the page with no `level`
+param applies it and writes it into the address bar. Leave `START_LEVEL` at 1 when shipping; bump it
+only while working on a later level, and put it back.
 
-`?trials=N` shortens every level to N trials for a quick pass through the whole chain
-(`?trials=3&level=3` combines the two), which is what the short links in README.md point at. It also
+`?levels=` runs **only** the levels listed, in the order given, and then finishes: a range
+(`?levels=1-3`), a comma-separated list (`?levels=1,3`), or a mix (`?levels=1-2,5`). Use it to ship
+or test a cut of the game that stops short of the unfinished levels - `?levels=1-3` is the current
+playable set. It is the more specific of the two switches, so it wins and `?level=` is ignored when
+both are given; out-of-range or unparseable entries are dropped with a console warning rather than
+failing the page. Both parameters only pick from `ALL_LEVELS` in `game/index.html`; `game/jspsych.js`
+builds its own chain in code and reads no query string.
+
+`?trials=N` shortens every level in the chain to N trials for a quick pass through it
+(`?trials=3&levels=1-3` combines the two), which is what the short links in README.md point at. It also
 lowers `minTrialsPerPhase`, the floor under the phase target, since otherwise a 3-trial level still
 demands two fast trials per phase; it never raises either value, so a long run keeps the level's own
 numbers. It is a testing and demo switch — a session run that way is not data.

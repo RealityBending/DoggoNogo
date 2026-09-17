@@ -7,6 +7,10 @@ Play the game:
 - [**Play the game!**](https://realitybending.github.io/DoggoNogo/game/)
     - Ultra-short testing version (3 trials per level): [https://realitybending.github.io/DoggoNogo/game/?trials=3](https://realitybending.github.io/DoggoNogo/game/?trials=3)
     - Ultra-short version (start at Level 3): [https://realitybending.github.io/DoggoNogo/game/?trials=3&level=3](https://realitybending.github.io/DoggoNogo/game/?trials=3&level=3)
+    - Finished levels only (1-3): [https://realitybending.github.io/DoggoNogo/game/?levels=1-3](https://realitybending.github.io/DoggoNogo/game/?levels=1-3)
+
+`?level=N` starts at a level and plays on to the end; `?levels=` runs only the levels listed and
+then finishes, as a range (`?levels=1-3`), a list (`?levels=1,3`) or a mix (`?levels=1-2,5`).
 
 
 Studies:
@@ -31,19 +35,19 @@ DoggoNogo is a browser-based gamified neuropsychological battery designed to mea
 
 The app is a pure client-side HTML5 application with no build step and no dependencies. It is written as native ES modules, so it is served over HTTP rather than opened straight from the filesystem. The rendering target is a `<canvas>` element that scales responsively to the viewport via CSS. The codebase is organized as follows:
 
-| File | Role |
-|---|---|
-| `game/assets.js` | Asset manifest (`DoggoNogoAssets`) consumed by the global preloader |
-| `game/game.js` | Shared UI helpers: score-screen animation, `zScoreToQuantile`, loading screen, asset preloader (`DoggoNogoCore`), trial-type constants, end-of-level `computeIES` |
-| `game/core.js` | `DoggoNogoBaseLevel`: shared level mechanics (player physics, rendering scaffolding, phase progression, scoring helpers, input plumbing) that each level inherits via its prototype |
-| `game/engine.js` | Central `DoggoNogoEngine` — orchestrates asset loading, cover screen, cutscene, instruction screen, `requestAnimationFrame` game loop, marker (photodiode) support, and the end-of-level score screen |
-| `game/cutscene.js` | `CutsceneRunner` — a generic step-sequenced cutscene player (fill / text / image / sound / wait steps) plus inline cutscene-asset loader |
-| `game/levels/level1.js` | All logic for Level 1 (Simple RT) as a single self-contained `level1` object |
-| `game/levels/level2.js` | All logic for Level 2 (Simon task) as a single self-contained `level2` object |
-| `game/levels/cutscenes.js` | Level 1 and Level 2 cutscene sequence definitions |
-| `game/jspsych.js` | Thin jsPsych integration layer: creates `jsPsychCallFunction` trials, manages canvas lifecycle inside the jsPsych display element, and serialises per-trial data back into jsPsych's data store |
-| `game/index.html` | Standalone entry point |
-| `example_jspsych.html` | Minimal jsPsych integration example |
+| File                       | Role                                                                                                                                                                                                  |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `game/assets.js`           | Asset manifest (`DoggoNogoAssets`) consumed by the global preloader                                                                                                                                   |
+| `game/game.js`             | Shared UI helpers: score-screen animation, `zScoreToQuantile`, loading screen, asset preloader (`DoggoNogoCore`), trial-type constants, end-of-level `computeIES`                                     |
+| `game/core.js`             | `DoggoNogoBaseLevel`: shared level mechanics (player physics, rendering scaffolding, phase progression, scoring helpers, input plumbing) that each level inherits via its prototype                   |
+| `game/engine.js`           | Central `DoggoNogoEngine` — orchestrates asset loading, cover screen, cutscene, instruction screen, `requestAnimationFrame` game loop, marker (photodiode) support, and the end-of-level score screen |
+| `game/cutscene.js`         | `CutsceneRunner` — a generic step-sequenced cutscene player (fill / text / image / sound / wait steps) plus inline cutscene-asset loader                                                              |
+| `game/levels/level1.js`    | All logic for Level 1 (Simple RT) as a single self-contained `level1` object                                                                                                                          |
+| `game/levels/level2.js`    | All logic for Level 2 (Simon task) as a single self-contained `level2` object                                                                                                                         |
+| `game/levels/cutscenes.js` | Level 1 and Level 2 cutscene sequence definitions                                                                                                                                                     |
+| `game/jspsych.js`          | Thin jsPsych integration layer: creates `jsPsychCallFunction` trials, manages canvas lifecycle inside the jsPsych display element, and serialises per-trial data back into jsPsych's data store       |
+| `game/index.html`          | Standalone entry point                                                                                                                                                                                |
+| `example_jspsych.html`     | Minimal jsPsych integration example                                                                                                                                                                   |
 
 Levels expose a uniform interface (`load`, `showInstructionScreen`, `start`, `update`, `draw`, `handleResize`) consumed by the engine, and share their common mechanics through a `DoggoNogoBaseLevel` prototype (`game/core.js`). Each level rebuilds its mutable `state` from `getInitialState()` on every `start()`, so a level can be run more than once in a page without carrying anything over. Asset paths are relative and accept a configurable `assetBasePath` so the game can be served from any directory. An optional **marker** square (for physiological synchronisation via a photosensor) can be enabled via `markerEnabled: true` and flashes on stimulus onset.
 
@@ -63,7 +67,7 @@ Responses are classified as:
 
 The adaptive **median RT threshold** (initialised at 1 000 ms, updated after every valid trial using a running median) serves a dual purpose: it provides an individually-tailored difficulty parameter so the task remains challenging regardless of baseline speed, and it functions as the decision criterion separating fast from slow trials. The parameter `gameDifficulty` (default 1) divides the median to shift this threshold (> 1 makes it easier; < 1 makes it harder).
 
-The end-of-level performance score is IES (Mean correct RT / (1 − Error Rate)), where errors are defined as commission failures (early presses before stimulus onset) and omission timeouts (no response within 2 * median RT). The resulting score is Z-scored against population parameters (populationMean, populationSD) and converted into a percentile reflecting the percentage of players beaten, which is displayed in the end-of-level animation. 
+The end-of-level performance score is IES (Mean correct RT / (1 − Error Rate)), where errors are defined as commission failures (early presses before stimulus onset) and omission timeouts (no response within 2 * median RT). The resulting score is Z-scored against population parameters (populationMean, populationSD) and converted into a percentile reflecting the percentage of players beaten, which is displayed in the end-of-level animation.
 
 **Technical summary**
 
@@ -88,11 +92,11 @@ Level 2 implements a gamified **Simon task**, a canonical paradigm for measuring
 
 The level progresses across three phases of increasing cognitive demand:
 
-| Phase | Trial types | Cognitive demand |
-|---|---|---|
-| **Phase 1** (congruent only) | Stimulus position always matches required response direction | Baseline visuomotor compatibility; no conflict |
-| **Phase 2** (congruent + neutral) | Adds vertically spawned stimuli (top/bottom) with no lateral position cue | Neutral condition; introduces spatial uncertainty without direct conflict |
-| **Phase 3** (congruent + incongruent) | Adds horizontally spawned stimuli where position opposes required response direction | Maximal Simon interference; requires active response inhibition |
+| Phase                                 | Trial types                                                                          | Cognitive demand                                                          |
+| ------------------------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------- |
+| **Phase 1** (congruent only)          | Stimulus position always matches required response direction                         | Baseline visuomotor compatibility; no conflict                            |
+| **Phase 2** (congruent + neutral)     | Adds vertically spawned stimuli (top/bottom) with no lateral position cue            | Neutral condition; introduces spatial uncertainty without direct conflict |
+| **Phase 3** (congruent + incongruent) | Adds horizontally spawned stimuli where position opposes required response direction | Maximal Simon interference; requires active response inhibition           |
 
 Incongruent trials in Phase 3 are expected to produce longer RTs and higher error rates than congruent trials — the **Simon effect** — quantifying the efficiency of the participant's inhibitory control. Errors (incorrect direction key) are penalised (`−minScore/2`) and logged with `difficulty: "incongruent"/"congruent"/"neutral"` for downstream contrast analysis. The `neutralProportionPhase2` and `incongruentProportionPhase3` parameters allow researchers to adjust the conflict load without changing game structure.
 
@@ -113,7 +117,7 @@ Level 2 shares the same object interface and engine as Level 1 but adds the foll
 
 ### Potential improvements
 
-- **Control Pre-Trial Sequential Carryover Effects (Gratton Effect)** :Conflict tasks exhibit strong sequential dependencies: the Simon effect is significantly reduced following an incongruent trial compared to a congruent trial. We should implement a control of trial randomization by using pseudo-random Latin squares or counterbalancing transition matrices so that the proportion of congruent-after-congruent, incongruent-after-congruent, congruent-after-incongruent, and incongruent-after-incongruent pairs are balanced. 
+- **Control Pre-Trial Sequential Carryover Effects (Gratton Effect)** :Conflict tasks exhibit strong sequential dependencies: the Simon effect is significantly reduced following an incongruent trial compared to a congruent trial. We should implement a control of trial randomization by using pseudo-random Latin squares or counterbalancing transition matrices so that the proportion of congruent-after-congruent, incongruent-after-congruent, congruent-after-incongruent, and incongruent-after-incongruent pairs are balanced.
 - **Counterbalance Stimulus Feature Transitions (Negative Priming / Feature Binding)**: When stimulus direction or location repeats or partially alternates across consecutive trials (e.g., left fish on left $\to$ left fish on right), episodic retrieval and feature-binding costs distort reaction times.
 
 ### Illusion levels (3–5): narrative and character evolution
@@ -137,7 +141,7 @@ Go/No-go: after Level 5's scolding, Doggo is trained to follow commands (fetch o
 ### Adaptive Design
 
 - Kianté
-- https://pubmed.ncbi.nlm.nih.gov/36805245/
-- https://github.com/jspsych/jspsych-ado
-- https://pmc.ncbi.nlm.nih.gov/articles/PMC3755632/
-- https://www.sciencedirect.com/science/article/abs/pii/S245190222200338X?via%3Dihub
+  - https://pubmed.ncbi.nlm.nih.gov/36805245/
+  - https://github.com/jspsych/jspsych-ado
+  - https://pmc.ncbi.nlm.nih.gov/articles/PMC3755632/
+  - https://www.sciencedirect.com/science/article/abs/pii/S245190222200338X?via%3Dihub

@@ -184,7 +184,7 @@ Classic 2D hand-drawn animation style, vintage 1950s-60s Disney storybook illust
 Output: 1536x1024 landscape, three character stages side by side on white background. Shared baseline, even gaps, matching headroom and margins.
 ```
 
-### `level4/cutscene_ribbon.png` - Cutscene - Nogo with the ribbon spool
+### `level4/cutscene_ribbon.webp` - Cutscene - Nogo with the ribbon spool
 
 **In the game:** Level 4 cutscene panel (sprite-style, centred on a dark stage): Nogo with the ribbon spool. Narration over the lower quarter.
 
@@ -198,7 +198,7 @@ Classic 2D hand-drawn animation style, vintage 1950s-60s Disney storybook illust
 Output: 1536x1024 landscape story panel. Centred subject, deep indigo backdrop, generous dark margins.
 ```
 
-### `level4/cutscene_bone_ribboned.png` - Cutscene - a bone tied with ribbons
+### `level4/cutscene_bone_ribboned.webp` - Cutscene - a bone tied with ribbons
 
 **In the game:** Level 4 cutscene panel showing the ribboned bone the task then draws procedurally (same red as `finFill`).
 
@@ -230,7 +230,7 @@ Classic 2D hand-drawn animation style, vintage 1950s-60s Disney storybook illust
 Output: 1536x1024 landscape, three character stages side by side on white background. Shared baseline, even gaps, matching headroom and margins.
 ```
 
-### `level5/cutscene_yarn.png` - Cutscene - Nogo in the yarn mess
+### `level5/cutscene_yarn.webp` - Cutscene - Nogo in the yarn mess
 
 **In the game:** Level 5 cutscene panel (previous yarn idea; Level 5 is being re-planned).
 
@@ -272,11 +272,11 @@ Output: 16:9 landscape. Keep the upper middle of the frame open and uncluttered 
 
 _Generate these in the order listed. Every one after the first attaches the first as its anchor, so the set looks like one sheet of stickers rather than eight separate drawings._
 
-### `level1/feedback_fast1.png` - Fast response, tier 1
+### `level1/feedback_fast1.webp` - Fast response, tier 1
 
 **In the game:** Speech-bubble sticker popped above the player after a fast response (first fast trial of a streak). Levels 1 and 2.
 
-Also saved as `level2/feedback_fast1.png`.
+Also saved as `level2/feedback_fast1.webp`.
 
 ```
 Text: "NICE!" Golden burst, orange letters.
@@ -286,11 +286,11 @@ Classic 2D hand-drawn animation style, vintage 1950s-60s Disney storybook illust
 Output: 709x710 transparent square. Large starburst and large lettering. Use the exact uppercase text and line breaks given. Shared burst shape and lettering.
 ```
 
-### `level1/feedback_fast2.png` - Fast response, tier 2 (Doggo flavour)
+### `level1/feedback_fast2.webp` - Fast response, tier 2 (Doggo flavour)
 
 **In the game:** Second consecutive fast response, Level 1 flavour (Level 2 has its own).
 
-**Attach as reference:** `game/assets/level1/feedback_fast1.png`
+**Attach as reference:** `game/assets/level1/feedback_fast1.webp`
 
 ```
 Text: "GOOD BOI!" on two lines. Golden burst, scarlet letters. Match the shape, spikes and lettering of the attached burst.
@@ -300,13 +300,13 @@ Classic 2D hand-drawn animation style, vintage 1950s-60s Disney storybook illust
 Output: 709x710 transparent square. Large starburst and large lettering. Use the exact uppercase text and line breaks given. Shared burst shape and lettering.
 ```
 
-### `level1/feedback_fast3.png` - Fast response, tier 3 (best)
+### `level1/feedback_fast3.webp` - Fast response, tier 3 (best)
 
 **In the game:** Third consecutive fast response and the streak's peak, then the counter wraps. Levels 1 and 2.
 
-Also saved as `level2/feedback_fast3.png`.
+Also saved as `level2/feedback_fast3.webp`.
 
-**Attach as reference:** `game/assets/level1/feedback_fast1.png`
+**Attach as reference:** `game/assets/level1/feedback_fast1.webp`
 
 ```
 Text: "ON A ROLL!" on two lines. Golden burst, azure letters. Match the shape, spikes and lettering of the attached burst.
@@ -316,13 +316,13 @@ Classic 2D hand-drawn animation style, vintage 1950s-60s Disney storybook illust
 Output: 709x710 transparent square. Large starburst and large lettering. Use the exact uppercase text and line breaks given. Shared burst shape and lettering.
 ```
 
-### `level1/feedback_slow1.png` - Slow response (answered, but past the threshold)
+### `level1/feedback_slow1.webp` - Slow response (answered, but past the threshold)
 
 **In the game:** Response after the fast/slow threshold but before the window closed. Levels 1 and 2.
 
-Also saved as `level2/feedback_slow1.png`.
+Also saved as `level2/feedback_slow1.webp`.
 
-**Attach as reference:** `game/assets/level1/feedback_fast1.png`
+**Attach as reference:** `game/assets/level1/feedback_fast1.webp`
 
 ```
 Text: "TRY FASTER" on two lines. Green burst, cream letters. Match the shape, spikes and lettering of the attached burst.
@@ -332,13 +332,13 @@ Classic 2D hand-drawn animation style, vintage 1950s-60s Disney storybook illust
 Output: 709x710 transparent square. Large starburst and large lettering. Use the exact uppercase text and line breaks given. Shared burst shape and lettering.
 ```
 
-### `level1/feedback_late1.png` - Timeout (no response at all)
+### `level1/feedback_late1.webp` - Timeout (no response at all)
 
 **In the game:** No response before the window closed (timeout). Levels 1 and 2.
 
-Also saved as `level2/feedback_late1.png`.
+Also saved as `level2/feedback_late1.webp`.
 
-**Attach as reference:** `game/assets/level1/feedback_fast1.png`
+**Attach as reference:** `game/assets/level1/feedback_fast1.webp`
 
 ```
 Text: "TOO SLOW!" on two lines. Blue burst, pale-blue letters. Match the shape, spikes and lettering of the attached burst.
@@ -348,13 +348,13 @@ Classic 2D hand-drawn animation style, vintage 1950s-60s Disney storybook illust
 Output: 709x710 transparent square. Large starburst and large lettering. Use the exact uppercase text and line breaks given. Shared burst shape and lettering.
 ```
 
-### `level1/feedback_early1.png` - Early press (before the stimulus appeared)
+### `level1/feedback_early1.webp` - Early press (before the stimulus appeared)
 
-**In the game:** Key pressed before the stimulus appeared (penalised). Levels 1 and 2; also stands in for Levels 3-5's wrong-side error until they get their own.
+**In the game:** Key pressed before the stimulus appeared (penalised). Levels 1 and 2, and borrowed by Levels 3-5 for the same case.
 
-Also saved as `level2/feedback_early1.png`.
+Also saved as `level2/feedback_early1.webp`.
 
-**Attach as reference:** `game/assets/level1/feedback_fast1.png`
+**Attach as reference:** `game/assets/level1/feedback_fast1.webp`
 
 ```
 Text: "TOO EARLY" on two lines. Vermilion burst, gold letters. Match the shape, spikes and lettering of the attached burst.
@@ -364,11 +364,11 @@ Classic 2D hand-drawn animation style, vintage 1950s-60s Disney storybook illust
 Output: 709x710 transparent square. Large starburst and large lettering. Use the exact uppercase text and line breaks given. Shared burst shape and lettering.
 ```
 
-### `level2/feedback_fast2.png` - Fast response, tier 2 (Nogo flavour)
+### `level2/feedback_fast2.webp` - Fast response, tier 2 (Nogo flavour)
 
 **In the game:** Second consecutive fast response, Level 2 flavour.
 
-**Attach as reference:** `game/assets/level1/feedback_fast1.png`
+**Attach as reference:** `game/assets/level1/feedback_fast1.webp`
 
 ```
 Text: "PURRRRFECTT!" on two lines. Golden burst, vermilion letters. Match the shape, spikes and lettering of the attached burst.
@@ -378,14 +378,28 @@ Classic 2D hand-drawn animation style, vintage 1950s-60s Disney storybook illust
 Output: 709x710 transparent square. Large starburst and large lettering. Use the exact uppercase text and line breaks given. Shared burst shape and lettering.
 ```
 
-### `level2/feedback_error1.png` - Wrong-key error (choice-task specific)
+### `level2/feedback_error1.webp` - Wrong-key error (choice-task specific)
 
 **In the game:** Wrong arrow key in Level 2 (direction error).
 
-**Attach as reference:** `game/assets/level1/feedback_fast1.png`
+**Attach as reference:** `game/assets/level1/feedback_fast1.webp`
 
 ```
 Text: "WRONG KEY!" on two lines. Pink burst, vermilion letters. Match the shape, spikes and lettering of the attached burst.
+
+Classic 2D hand-drawn animation style, vintage 1950s-60s Disney storybook illustration in the style of Eyvind Earle and Mary Blair - Sleeping Beauty, Cinderella, Sword in the Stone. Flat gouache painting, No outlines, no black line art, no ink. Simple yet expressive shapes, chunky stylized geometry. Broad, visible, soft brushstrokes. Limited muted color palette. Flat colors, matte paper texture, obviously hand-painted. Soft diffused lighting, clean aesthetic, wholesome and nostalgic mood. No photorealism, no 3D, no anime. Whimsical, hand-painted, with character. When applicable, characters and animals feature large emotive eyes, and detailed fur and fluffiness. No text (unless specifically mentioned).
+
+Output: 709x710 transparent square. Large starburst and large lettering. Use the exact uppercase text and line breaks given. Shared burst shape and lettering.
+```
+
+### `level3/feedback_error1.webp` - Wrong-bone error (illusion levels)
+
+**In the game:** Wrong answer in the illusion levels - the arrow for the SHORTER bone. Level 3 and Level 4 both judge bone length, and `illusion.js` loads one error bubble for every illusion level, so this one file covers both; Level 5 judges yarn balls and will need its own wording if it keeps that task.
+
+**Attach as reference:** `game/assets/level1/feedback_fast1.webp`
+
+```
+Text: "WRONG BONE!" on two lines. Pink burst, vermilion letters. Match the shape, spikes and lettering of the attached burst.
 
 Classic 2D hand-drawn animation style, vintage 1950s-60s Disney storybook illustration in the style of Eyvind Earle and Mary Blair - Sleeping Beauty, Cinderella, Sword in the Stone. Flat gouache painting, No outlines, no black line art, no ink. Simple yet expressive shapes, chunky stylized geometry. Broad, visible, soft brushstrokes. Limited muted color palette. Flat colors, matte paper texture, obviously hand-painted. Soft diffused lighting, clean aesthetic, wholesome and nostalgic mood. No photorealism, no 3D, no anime. Whimsical, hand-painted, with character. When applicable, characters and animals feature large emotive eyes, and detailed fur and fluffiness. No text (unless specifically mentioned).
 

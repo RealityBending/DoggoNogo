@@ -55,6 +55,7 @@ down there, call the functions directly instead of passing flags:
 """
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -70,10 +71,17 @@ def prose(text: str) -> str:
     Prompt text is written as triple-quoted blocks rather than as concatenated
     "..." fragments precisely so that rewording a sentence cannot silently lose
     the space at a line join.
+
+    A "blank" line inside an indented triple-quoted block usually still carries
+    the block's indentation, so the break is matched on whitespace rather than on
+    a bare newline pair. Splitting on the literal pair meant an editor adding
+    trailing indentation to an empty line silently ran two paragraphs together -
+    which is what had happened to Nogo's brief, whose three phase bullets had
+    collapsed onto one line.
     """
     paragraphs = (
         " ".join(line.strip() for line in paragraph.strip().splitlines())
-        for paragraph in text.strip().split("\n\n")
+        for paragraph in re.split(r"\n[ \t]*\n", text.strip())
     )
     return "\n\n".join(p for p in paragraphs if p)
 
@@ -158,7 +166,7 @@ STYLE = """
 DOGGO_ADULT = "level1/player_3.webp"
 NOGO_BOSS = "level2/player_3.webp"
 BACKYARD = "level1/background.webp"
-FIRST_BUBBLE = "level1/feedback_fast1.png"
+FIRST_BUBBLE = "level1/feedback_fast1.webp"
 
 LEVEL1_ASSETS = [
     {
@@ -278,13 +286,13 @@ LEVEL4_ASSETS = [
         "references": [DOGGO_BERSERK],
     },
     {
-        "file": "level4/cutscene_ribbon.png",
+        "file": "level4/cutscene_ribbon.webp",
         "name": "Cutscene - Nogo with the ribbon spool",
         "style": "vignette",
         "references": [NOGO_BOSS],
     },
     {
-        "file": "level4/cutscene_bone_ribboned.png",
+        "file": "level4/cutscene_bone_ribboned.webp",
         "name": "Cutscene - a bone tied with ribbons",
         "style": "vignette",
     },
@@ -298,7 +306,7 @@ LEVEL5_ASSETS = [
         "references": [DOGGO_BANDANA],
     },
     {
-        "file": "level5/cutscene_yarn.png",
+        "file": "level5/cutscene_yarn.webp",
         "name": "Cutscene - Nogo in the yarn mess",
         "style": "vignette",
         "references": [NOGO_BOSS],
@@ -323,48 +331,53 @@ TITLE_ASSETS = [
 
 FEEDBACK_ASSETS = [
     {
-        "file": "level1/feedback_fast1.png",
-        "also": "level2/feedback_fast1.png",
+        "file": "level1/feedback_fast1.webp",
+        "also": "level2/feedback_fast1.webp",
         "name": "Fast response, tier 1",
         "style": "burst",
     },
     {
-        "file": "level1/feedback_fast2.png",
+        "file": "level1/feedback_fast2.webp",
         "name": "Fast response, tier 2 (Doggo flavour)",
         "style": "burst",
     },
     {
-        "file": "level1/feedback_fast3.png",
-        "also": "level2/feedback_fast3.png",
+        "file": "level1/feedback_fast3.webp",
+        "also": "level2/feedback_fast3.webp",
         "name": "Fast response, tier 3 (best)",
         "style": "burst",
     },
     {
-        "file": "level1/feedback_slow1.png",
-        "also": "level2/feedback_slow1.png",
+        "file": "level1/feedback_slow1.webp",
+        "also": "level2/feedback_slow1.webp",
         "name": "Slow response (answered, but past the threshold)",
         "style": "burst",
     },
     {
-        "file": "level1/feedback_late1.png",
-        "also": "level2/feedback_late1.png",
+        "file": "level1/feedback_late1.webp",
+        "also": "level2/feedback_late1.webp",
         "name": "Timeout (no response at all)",
         "style": "burst",
     },
     {
-        "file": "level1/feedback_early1.png",
-        "also": "level2/feedback_early1.png",
+        "file": "level1/feedback_early1.webp",
+        "also": "level2/feedback_early1.webp",
         "name": "Early press (before the stimulus appeared)",
         "style": "burst",
     },
     {
-        "file": "level2/feedback_fast2.png",
+        "file": "level2/feedback_fast2.webp",
         "name": "Fast response, tier 2 (Nogo flavour)",
         "style": "burst",
     },
     {
-        "file": "level2/feedback_error1.png",
+        "file": "level2/feedback_error1.webp",
         "name": "Wrong-key error (choice-task specific)",
+        "style": "burst",
+    },
+    {
+        "file": "level3/feedback_error1.webp",
+        "name": "Wrong-bone error (illusion levels)",
         "style": "burst",
     },
 ]
@@ -424,11 +437,11 @@ BRIEFS = {
         - RIGHT: exhausted and sheepish, sitting, fur smooth again, red ribbon bandana neatly tied, one bone at the paws.
         Same dog with same characteristics across all three phases. No shadows under the dog or environmental elements. Attached is a reference for Doggo, in his berserk state, to continue from.
     """,
-    "level4/cutscene_ribbon.png": "Smug Nogo holding a wooden spool of bright red ribbon, loose ribbon on the floor, a pile of white dog bones beside him. Attached is a reference for Nogo.",
-    "level4/cutscene_bone_ribboned.png": "Large white dog bone wrapped in bright red ribbon, two sweeping ribbon blades at each end.",
+    "level4/cutscene_ribbon.webp": "Smug Nogo holding a wooden spool of bright red ribbon, loose ribbon on the floor, a pile of white dog bones beside him. Attached is a reference for Nogo.",
+    "level4/cutscene_bone_ribboned.webp": "Large white dog bone wrapped in bright red ribbon, two sweeping ribbon blades at each end.",
     # LEVEL 5 - yarn (being re-planned)
     "level5/player_1.webp + player_2.webp + player_3.webp": "Extra-fluffy Doggo with one floppy ear and red bandana, front-facing. LEFT: plain. MIDDLE: half-knitted top, loose yarn. RIGHT: finished colourful knitted jumper, proud stance. Attached is a reference for Doggo.",
-    "level5/cutscene_yarn.png": "Delighted Nogo in a tangled colourful yarn workshop, winding a fresh ball of yarn. Attached is a reference for Nogo.",
+    "level5/cutscene_yarn.webp": "Delighted Nogo in a tangled colourful yarn workshop, winding a fresh ball of yarn. Attached is a reference for Nogo.",
     # TITLE SCREEN
     "cover.webp": """
         Cover art for a cute and funny video game. Dusk backyard standoff featuring the two main characters of the game: Doggo, the proud dog hero by his doghouse on the left, and Nogo, the villainous cat, smug attitude, on the fence on the right.
@@ -439,14 +452,15 @@ BRIEFS = {
         No text or lettering anywhere: the title is drawn over this in code, so leave the sky between the two characters open.
     """,
     # FEEDBACK BUBBLES (shared)
-    "level1/feedback_fast1.png": 'Text: "NICE!" Golden burst, orange letters.',
-    "level1/feedback_fast2.png": 'Text: "GOOD BOI!" on two lines. Golden burst, scarlet letters. Match the shape, spikes and lettering of the attached burst.',
-    "level1/feedback_fast3.png": 'Text: "ON A ROLL!" on two lines. Golden burst, azure letters. Match the shape, spikes and lettering of the attached burst.',
-    "level1/feedback_slow1.png": 'Text: "TRY FASTER" on two lines. Green burst, cream letters. Match the shape, spikes and lettering of the attached burst.',
-    "level1/feedback_late1.png": 'Text: "TOO SLOW!" on two lines. Blue burst, pale-blue letters. Match the shape, spikes and lettering of the attached burst.',
-    "level1/feedback_early1.png": 'Text: "TOO EARLY" on two lines. Vermilion burst, gold letters. Match the shape, spikes and lettering of the attached burst.',
-    "level2/feedback_fast2.png": 'Text: "PURRRRFECTT!" on two lines. Golden burst, vermilion letters. Match the shape, spikes and lettering of the attached burst.',
-    "level2/feedback_error1.png": 'Text: "WRONG KEY!" on two lines. Pink burst, vermilion letters. Match the shape, spikes and lettering of the attached burst.',
+    "level1/feedback_fast1.webp": 'Text: "NICE!" Golden burst, orange letters.',
+    "level1/feedback_fast2.webp": 'Text: "GOOD BOI!" on two lines. Golden burst, scarlet letters. Match the shape, spikes and lettering of the attached burst.',
+    "level1/feedback_fast3.webp": 'Text: "ON A ROLL!" on two lines. Golden burst, azure letters. Match the shape, spikes and lettering of the attached burst.',
+    "level1/feedback_slow1.webp": 'Text: "TRY FASTER" on two lines. Green burst, cream letters. Match the shape, spikes and lettering of the attached burst.',
+    "level1/feedback_late1.webp": 'Text: "TOO SLOW!" on two lines. Blue burst, pale-blue letters. Match the shape, spikes and lettering of the attached burst.',
+    "level1/feedback_early1.webp": 'Text: "TOO EARLY" on two lines. Vermilion burst, gold letters. Match the shape, spikes and lettering of the attached burst.',
+    "level2/feedback_fast2.webp": 'Text: "PURRRRFECTT!" on two lines. Golden burst, vermilion letters. Match the shape, spikes and lettering of the attached burst.',
+    "level2/feedback_error1.webp": 'Text: "WRONG KEY!" on two lines. Pink burst, vermilion letters. Match the shape, spikes and lettering of the attached burst.',
+    "level3/feedback_error1.webp": 'Text: "WRONG BONE!" on two lines. Pink burst, vermilion letters. Match the shape, spikes and lettering of the attached burst.',
 }
 
 assert {asset["file"] for asset in ALL_ASSETS} == set(
@@ -473,22 +487,23 @@ DESCRIPTIONS = {
     "level3/cutscene_gate.webp": "Level 3 cutscene panel: Doggo bolting through the streets. Narration lines over the lower quarter.",
     # LEVEL 4 - Nogo intervenes
     "level4/player_1.webp + player_2.webp + player_3.webp": "Doggo's three Level 4 phases - calming down on the ribbon trail home - swapped at each phase break.",
-    "level4/cutscene_ribbon.png": "Level 4 cutscene panel (sprite-style, centred on a dark stage): Nogo with the ribbon spool. Narration over the lower quarter.",
-    "level4/cutscene_bone_ribboned.png": "Level 4 cutscene panel showing the ribboned bone the task then draws procedurally (same red as `finFill`).",
+    "level4/cutscene_ribbon.webp": "Level 4 cutscene panel (sprite-style, centred on a dark stage): Nogo with the ribbon spool. Narration over the lower quarter.",
+    "level4/cutscene_bone_ribboned.webp": "Level 4 cutscene panel showing the ribboned bone the task then draws procedurally (same red as `finFill`).",
     # LEVEL 5 - yarn (being re-planned)
     "level5/player_1.webp + player_2.webp + player_3.webp": "Doggo's three Level 5 phases (previous yarn idea; Level 5 is being re-planned).",
-    "level5/cutscene_yarn.png": "Level 5 cutscene panel (previous yarn idea; Level 5 is being re-planned).",
+    "level5/cutscene_yarn.webp": "Level 5 cutscene panel (previous yarn idea; Level 5 is being re-planned).",
     # TITLE SCREEN
     "cover.webp": "Title screen, full-frame under the DOGGO/NOGO wordmark, which the engine draws in code (`showCoverScreen`) over the open sky between the two characters, with a slow zoom, a subtitle and a SPACE prompt at the bottom. Also the ambient surround behind the stage on non-16:9 screens.",
     # FEEDBACK BUBBLES (shared)
-    "level1/feedback_fast1.png": "Speech-bubble sticker popped above the player after a fast response (first fast trial of a streak). Levels 1 and 2.",
-    "level1/feedback_fast2.png": "Second consecutive fast response, Level 1 flavour (Level 2 has its own).",
-    "level1/feedback_fast3.png": "Third consecutive fast response and the streak's peak, then the counter wraps. Levels 1 and 2.",
-    "level1/feedback_slow1.png": "Response after the fast/slow threshold but before the window closed. Levels 1 and 2.",
-    "level1/feedback_late1.png": "No response before the window closed (timeout). Levels 1 and 2.",
-    "level1/feedback_early1.png": "Key pressed before the stimulus appeared (penalised). Levels 1 and 2; also stands in for Levels 3-5's wrong-side error until they get their own.",
-    "level2/feedback_fast2.png": "Second consecutive fast response, Level 2 flavour.",
-    "level2/feedback_error1.png": "Wrong arrow key in Level 2 (direction error).",
+    "level1/feedback_fast1.webp": "Speech-bubble sticker popped above the player after a fast response (first fast trial of a streak). Levels 1 and 2.",
+    "level1/feedback_fast2.webp": "Second consecutive fast response, Level 1 flavour (Level 2 has its own).",
+    "level1/feedback_fast3.webp": "Third consecutive fast response and the streak's peak, then the counter wraps. Levels 1 and 2.",
+    "level1/feedback_slow1.webp": "Response after the fast/slow threshold but before the window closed. Levels 1 and 2.",
+    "level1/feedback_late1.webp": "No response before the window closed (timeout). Levels 1 and 2.",
+    "level1/feedback_early1.webp": "Key pressed before the stimulus appeared (penalised). Levels 1 and 2, and borrowed by Levels 3-5 for the same case.",
+    "level2/feedback_fast2.webp": "Second consecutive fast response, Level 2 flavour.",
+    "level2/feedback_error1.webp": "Wrong arrow key in Level 2 (direction error).",
+    "level3/feedback_error1.webp": "Wrong answer in the illusion levels - the arrow for the SHORTER bone. Level 3 and Level 4 both judge bone length, and `illusion.js` loads one error bubble for every illusion level, so this one file covers both; Level 5 judges yarn balls and will need its own wording if it keeps that task.",
 }
 
 assert {asset["file"] for asset in ALL_ASSETS} == set(

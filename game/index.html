@@ -143,39 +143,92 @@
                 }
             })
 
-            // Levels are run in order. To test a level without playing through the earlier ones,
-            // load the page with `?level=2` / `?level=3`, or change START_LEVEL below (opening the
-            // page with no `level` param writes START_LEVEL into the URL). The chosen level shows
-            // the cover screen and later ones follow it as usual.
-            const LEVELS = [
+            // Every level the game knows about, in story order. What actually runs is `LEVELS`
+            // below, which is this list or a subset of it.
+            //
+            // `number` is the level's own 1-based number, taken from its position here. It is kept
+            // on the entry because only the illusion levels carry a `levelNumber` of their own, and
+            // because once `?levels=` can drop levels, a level's position in the chain is no longer
+            // its number.
+            const ALL_LEVELS = [
                 { level: level1, cutscene: level1Cutscene },
                 { level: level2, cutscene: level2Cutscene },
                 { level: level3, cutscene: level3Cutscene },
                 { level: level4, cutscene: level4Cutscene },
                 { level: level5, cutscene: level5Cutscene },
-            ]
+            ].map((entry, i) => ({ ...entry, number: i + 1 }))
             const START_LEVEL = 1 // 1-based; overridden by ?level=N
 
-            function resolveStartIndex() {
+            /**
+             * Which levels to run, from the URL. Two parameters, because "start here" and "run
+             * exactly these" are different questions:
+             *
+             *   ?level=3     start at Level 3 and carry on to the end (3, 4, 5).
+             *   ?levels=1-3  run ONLY Levels 1, 2 and 3, then finish. Also takes a comma-separated
+             *                list and mixes the two: `?levels=1,3`, `?levels=1-2,5`.
+             *
+             * `levels` is the more specific of the two, so it wins and `level` is ignored when both
+             * are given. Numbers outside 1..5 and unparseable entries are dropped with a warning
+             * rather than failing the page; if nothing survives, the full chain runs.
+             */
+            function resolveChain() {
                 const params = new URLSearchParams(window.location.search)
-                const fromUrl = params.get("level")
-                const requested = parseInt(fromUrl === null ? START_LEVEL : fromUrl, 10)
-                if (!Number.isFinite(requested) || requested < 1 || requested > LEVELS.length) {
-                    console.warn(`Unknown start level "${fromUrl}"; starting at level 1.`)
-                    return 0
+                const subset = params.get("levels")
+                const start = params.get("level")
+
+                if (subset !== null) {
+                    if (start !== null) console.warn(`?levels=${subset} overrides ?level=${start}; running the listed levels.`)
+                    const bad = []
+                    const numbers = []
+                    subset.split(",").forEach((part) => {
+                        const piece = part.trim()
+                        if (!piece) return
+                        // A range ("1-3") or a single number ("4"). `to < from` counts down, so
+                        // `?levels=3-1` is a deliberate reverse order rather than an empty chain.
+                        const range = piece.match(/^(\d+)\s*-\s*(\d+)$/)
+                        const wanted = range
+                            ? (() => {
+                                  const [from, to] = [parseInt(range[1], 10), parseInt(range[2], 10)]
+                                  const step = from <= to ? 1 : -1
+                                  return Array.from({ length: Math.abs(to - from) + 1 }, (_, i) => from + i * step)
+                              })()
+                            : /^\d+$/.test(piece)
+                              ? [parseInt(piece, 10)]
+                              : null
+                        if (!wanted) return bad.push(piece)
+                        wanted.forEach((n) => (n >= 1 && n <= ALL_LEVELS.length ? numbers.push(n) : bad.push(String(n))))
+                    })
+                    if (bad.length) console.warn(`?levels: ignoring "${bad.join('", "')}" (levels run from 1 to ${ALL_LEVELS.length}).`)
+                    // Deduplicated, because running one level twice in a session would reuse its
+                    // state object and log two runs under the same level number.
+                    const picked = [...new Set(numbers)]
+                    if (picked.length) {
+                        console.warn(`?levels=${subset}: running level(s) ${picked.join(", ")} only.`)
+                        return picked.map((n) => ALL_LEVELS[n - 1])
+                    }
+                    console.warn(`?levels=${subset}: nothing usable in it; running every level.`)
+                    return ALL_LEVELS.slice()
                 }
-                if (fromUrl === null) {
+
+                const requested = parseInt(start === null ? START_LEVEL : start, 10)
+                if (!Number.isFinite(requested) || requested < 1 || requested > ALL_LEVELS.length) {
+                    console.warn(`Unknown start level "${start}"; starting at level 1.`)
+                    return ALL_LEVELS.slice()
+                }
+                if (start === null) {
                     // Show the level actually being run in the address bar, so a reload or a copied
                     // link keeps it and it is obvious the game is not starting from the beginning.
                     params.set("level", requested)
                     window.history.replaceState(null, "", `${window.location.pathname}?${params}`)
                 }
-                return requested - 1
+                return ALL_LEVELS.slice(requested - 1)
             }
 
-            const startIndex = resolveStartIndex()
+            const LEVELS = resolveChain()
+            // The chain always starts at its own first entry now that it is already the subset.
+            const startIndex = 0
 
-            // `?trials=N` shrinks every level to N trials: an ultra-short pass through the whole
+            // `?trials=N` shrinks every level to N trials: an ultra-short pass through the
             // chain, for testing and demos rather than data collection. `minTrialsPerPhase` has to
             // come down with it, because it is a floor under the phase target (see
             // `computePhaseTarget` in level1.js) -- a 3-trial level would otherwise still demand two
@@ -193,7 +246,7 @@
             applyTrialsOverride()
 
             function runLevel(index) {
-                const { level, cutscene } = LEVELS[index]
+                const { level, cutscene, number } = LEVELS[index]
                 const isLast = index === LEVELS.length - 1
                 DoggoNogoEngine.run(canvas, level, {
                     assetBasePath: "assets/",
@@ -208,7 +261,9 @@
                     continueHint: isLast ? "Press SPACE to finish" : "Press SPACE to continue",
                     onFinish: (state) => {
                         if (isLast) {
-                            console.log(`All levels finished. Final state level${index + 1}:`, state)
+                            // The level's own number, not its position: with `?levels=` the chain
+                            // is a subset and the two no longer agree.
+                            console.log(`All levels finished. Final state level${number}:`, state)
                             return
                         }
                         const proceed = (e) => {
@@ -224,7 +279,7 @@
 
             ;(async () => {
                 if (!canvas) {
-                    console.error(`Could not start level ${startIndex + 1}: canvas not found.`)
+                    console.error(`Could not start level ${LEVELS[startIndex].number}: canvas not found.`)
                     return
                 }
                 // The engine performs global + level preload internally; just call run after a slight defer for paint.
