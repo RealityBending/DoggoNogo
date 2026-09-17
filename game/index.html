@@ -175,6 +175,23 @@
 
             const startIndex = resolveStartIndex()
 
+            // `?trials=N` shrinks every level to N trials: an ultra-short pass through the whole
+            // chain, for testing and demos rather than data collection. `minTrialsPerPhase` has to
+            // come down with it, because it is a floor under the phase target (see
+            // `computePhaseTarget` in level1.js) -- a 3-trial level would otherwise still demand two
+            // fast trials in each of its three phases. The parameter only ever *lowers* that floor,
+            // so a long run keeps the level's own value.
+            function applyTrialsOverride() {
+                const requested = parseInt(new URLSearchParams(window.location.search).get("trials"), 10)
+                if (!Number.isFinite(requested) || requested < 1) return
+                LEVELS.forEach(({ level }) => {
+                    level.params.trialsNumber = requested
+                    level.params.minTrialsPerPhase = Math.min(level.params.minTrialsPerPhase, Math.max(1, Math.ceil(requested / 3)))
+                })
+                console.warn(`?trials=${requested}: short run, ${requested} trials per level. Not a session to collect data from.`)
+            }
+            applyTrialsOverride()
+
             function runLevel(index) {
                 const { level, cutscene } = LEVELS[index]
                 const isLast = index === LEVELS.length - 1

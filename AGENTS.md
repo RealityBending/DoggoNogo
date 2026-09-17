@@ -7,9 +7,10 @@
 ## What this project is
 
 A dependency-free, build-step-free HTML5 `<canvas>` game implementing two gamified
-neuropsychological tasks (Level 1 = Simple RT, Level 2 = Simon task). It runs either standalone
-or embedded inside a jsPsych experiment. Everything is native ES modules — there is **no bundler,
-no npm, no transpile step**. Serve the repo over HTTP and open the entry point in a browser.
+neuropsychological tasks (Level 1 = Simple RT, Level 2 = Simon task). It runs standalone; a jsPsych
+embed also exists but is **parked** (see the note under Entry points). Everything is native ES
+modules — there is **no bundler, no npm, no transpile step**. Serve the repo over HTTP and open the
+entry point in a browser.
 
 ## Entry points
 
@@ -18,6 +19,16 @@ no npm, no transpile step**. Serve the repo over HTTP and open the entry point i
 | Standalone | `game/index.html` | Sizes the canvas and runs the `LEVELS` chain (L1 → L2 → L3 → L4 → L5) from an inline `<script type="module">`. |
 | jsPsych embed | `example_jspsych.html` | Minimal example using the `DoggoNogo` integration object. |
 | jsPsych API | `game/jspsych.js` | `DoggoNogo.level1(opts)` / `DoggoNogo.level2(opts)` build jsPsych trials; both need the instance from `initJsPsych()` passed as `opts.jsPsych`. |
+
+> **The jsPsych path is a stale, parked project — do not maintain it.** `game/jspsych.js` and
+> `example_jspsych.html` were written for Levels 1–2 and have not kept up: Levels 3–5 have no
+> wrapper, and nothing is verified through that path. Treat the standalone `game/index.html` as the
+> only supported entry point. Concretely: don't add jsPsych wrappers for new levels, don't extend or
+> repair the integration as a side errand while changing something else, don't let it constrain a
+> change to the standalone game, and don't report it as broken — it is expected to be. Whether it
+> gets revived or deleted is an open decision for later, so leave the files in place rather than
+> tidying them away. The hooks it needs *are* still live code and stay as they are: `level.jsPsych`,
+> the `now()` clock switch and `state.clockOffset` (see Conventions).
 
 ## File map & responsibilities
 
@@ -36,7 +47,7 @@ no npm, no transpile step**. Serve the repo over HTTP and open the entry point i
 | `game/levels/level4.js` | `level4` | Müller-Lyer illusion (ribbon blades at the bone tips, drawn behind the bone). Inherits `DoggoNogoIllusionLevel`; standalone-only for now. |
 | `game/levels/level5.js` | `level5` | Ebbinghaus illusion (target discs in rings of context discs; geometry ported from Pyllusion — note its `TaskDifficulty` is an AREA proportion, unlike the length proportions of L3/L4). Plain circles pending assets/narrative. Inherits `DoggoNogoIllusionLevel`; standalone-only for now. |
 | `game/levels/cutscenes.js` | `level1Cutscene` … `level5Cutscene` | Cutscene step definitions consumed by `CutsceneRunner`. Levels 3–5 are tentative: minimal text with `[ ART: ... ]` text steps standing in for artwork to be made. |
-| `game/jspsych.js` | `DoggoNogo` | jsPsych integration: builds the call-function trials that run a level. |
+| `game/jspsych.js` | `DoggoNogo` | jsPsych integration: builds the call-function trials that run a level. **Parked/stale** — see the note under Entry points. |
 
 ## The level interface (contract)
 
@@ -75,8 +86,8 @@ that blits one, but a sprite's box is its bounding box including transparent pad
 2. End the file with `Object.setPrototypeOf(levelN, DoggoNogoBaseLevel)` followed by
    `levelN.state = levelN.getInitialState()`.
 3. Import it where it should run and register it: add an entry to the `LEVELS` array in
-   `game/index.html` (which chains the levels and preloads the remaining ones), and/or add a
-   wrapper in `game/jspsych.js`.
+   `game/index.html` (which chains the levels and preloads the remaining ones). That is the whole
+   registration — no jsPsych wrapper, that path is parked (see the note under Entry points).
 4. Define `computePhaseTarget(i)` — the base's `getPhaseTargets`/`ensurePhaseTarget` build on it
    (Level 1 = adaptive, Level 2 = fixed). Only override those two for a genuinely different strategy.
 5. Draw the stimulus, don't blit it: add its shape to `game/stimuli.js`, override
@@ -233,6 +244,12 @@ To work on a later level without playing through the earlier ones, append `?leve
 same switch without the query string; opening the page with no `level` param applies it and writes
 it into the address bar. Leave `START_LEVEL` at 1 when shipping; bump it only while working on a
 later level, and put it back.
+
+`?trials=N` shortens every level to N trials for a quick pass through the whole chain
+(`?trials=3&level=3` combines the two), which is what the short links in README.md point at. It also
+lowers `minTrialsPerPhase`, the floor under the phase target, since otherwise a 3-trial level still
+demands two fast trials per phase; it never raises either value, so a long run keeps the level's own
+numbers. It is a testing and demo switch — a session run that way is not data.
 
 There is no automated test suite; verification is manual (play through the levels, check
 `window.level1Data` … `window.level5Data` in the console for the data log).

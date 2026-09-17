@@ -4,8 +4,9 @@ The game can be run as a standalone html or integrated within JsPsych.
 
 Play the game:
 
-- [**Standalone**](https://realitybending.github.io/DoggoNogo/game/)
-- [**JsPsych**](https://realitybending.github.io/DoggoNogo/example_jspsych.html)
+- [**Play the game!**](https://realitybending.github.io/DoggoNogo/game/)
+    - Ultra-short testing version (3 trials per level): [https://realitybending.github.io/DoggoNogo/game/?trials=3](https://realitybending.github.io/DoggoNogo/game/?trials=3)
+    - Ultra-short version (start at Level 3): [https://realitybending.github.io/DoggoNogo/game/?trials=3&level=3](https://realitybending.github.io/DoggoNogo/game/?trials=3&level=3)
 
 
 Studies:
