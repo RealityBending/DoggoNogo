@@ -260,16 +260,21 @@
                     otherLevels: LEVELS.slice(index + 1).map((entry) => entry.level),
                     continueHint: isLast ? "Press SPACE to finish" : "Press SPACE to continue",
                     onFinish: (state) => {
-                        if (isLast) {
-                            // The level's own number, not its position: with `?levels=` the chain
-                            // is a subset and the two no longer agree.
-                            console.log(`All levels finished. Final state level${number}:`, state)
-                            return
-                        }
+                        // The level's own number, not its position: with `?levels=` the chain is a
+                        // subset and the two no longer agree.
+                        if (isLast) console.log(`All levels finished. Final state level${number}:`, state)
+                        // Same SPACE handoff either way - on to the next level, or to the end
+                        // screen, which is what "Press SPACE to finish" on the last score screen
+                        // now actually does.
                         const proceed = (e) => {
                             if (e.code === "Space") {
                                 document.removeEventListener("keydown", proceed)
-                                runLevel(index + 1)
+                                if (isLast) {
+                                    DoggoNogoUI.ambient.set(null)
+                                    DoggoNogoCore.renderEndScreen(canvas)
+                                } else {
+                                    runLevel(index + 1)
+                                }
                             }
                         }
                         document.addEventListener("keydown", proceed)

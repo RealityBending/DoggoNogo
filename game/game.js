@@ -822,6 +822,51 @@ export const DoggoNogoCore = {
                 `<div style="text-align:center;">${message}</div></div>`
         }
     },
+    /**
+     * The curtain: painted once there is no level left to run, so the last score screen does not
+     * just sit there with a "Press SPACE to finish" prompt that finishes nothing.
+     *
+     * Standalone only. An embedded run (jsPsych) has a timeline to go back to, and telling that
+     * participant to close the tab would lose the rest of the study, so `game/jspsych.js` never
+     * calls this — see `runLevel` in game/index.html for the one caller.
+     *
+     * Deliberately terminal: nothing is bound to a key here, because there is nothing left to
+     * advance to.
+     */
+    renderEndScreen(target, message = "You can now close this tab.") {
+        if (!(target instanceof HTMLCanvasElement)) return
+        const ctx = target.getContext("2d")
+        if (!ctx) return
+        const w = target.width
+        const h = target.height
+        ctx.save()
+        // Same dark stage as the loading screen, so the session opens and closes on one backdrop.
+        const bg = ctx.createLinearGradient(0, 0, 0, h)
+        bg.addColorStop(0, THEME.bgMid)
+        bg.addColorStop(1, THEME.bgDeep)
+        ctx.fillStyle = bg
+        ctx.fillRect(0, 0, w, h)
+        const glow = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.min(w, h) * 0.6)
+        glow.addColorStop(0, "rgba(255, 200, 87, 0.07)")
+        glow.addColorStop(1, "rgba(255, 200, 87, 0)")
+        ctx.fillStyle = glow
+        ctx.fillRect(0, 0, w, h)
+
+        const titlePx = Math.round(h * 0.06)
+        drawGlowText(ctx, "THE END.", w / 2, h * 0.46, titlePx, { color: THEME.accent, font: THEME.display })
+        drawTitleRule(ctx, w / 2, h * 0.54, w * 0.22, Math.max(2, h * 0.004))
+
+        ctx.textAlign = "center"
+        ctx.fillStyle = THEME.ink
+        ctx.font = `600 ${Math.round(h * 0.036)}px ${THEME.font}`
+        ctx.fillText("Thanks for playing.", w / 2, h * 0.63)
+        ctx.fillStyle = THEME.inkSoft
+        ctx.font = `600 ${Math.round(h * 0.03)}px ${THEME.font}`
+        ctx.fillText(message, w / 2, h * 0.69)
+
+        drawVignette(ctx, w, h, 0.5)
+        ctx.restore()
+    },
     // Plays a cue if it can. Never throws and never rejects: sound is allowed to be missing.
     safePlay(audioEl, reset = true) {
         if (!audioEl) return
