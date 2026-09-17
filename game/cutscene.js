@@ -76,9 +76,14 @@ export const CutsceneRunner = {
             }
             document.addEventListener("keydown", this.boundKeyHandler)
             document.addEventListener("keyup", this.boundKeyUpHandler)
-            // Persistent layers
+            // Persistent layers, in painting order: the base (a background image, or the colour
+            // of the last `fill`), the sprite, then every narration line currently on the page.
+            // `redrawPersistent` rebuilds the whole frame from these, so nothing on screen
+            // depends on what happened to be painted there before.
+            this.currentFill = null
             this.currentBackground = null
             this.currentSprite = null
+            this.currentTexts = []
             this.nextStep()
         })
     },
@@ -117,12 +122,14 @@ export const CutsceneRunner = {
         this._commitCurrent = null
         switch (step.type) {
             case "fill": {
-                this.ctx.fillStyle = step.color || "black"
-                this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height)
+                // A cut to a blank stage: it clears the page, narration included, and becomes
+                // the base every later redraw paints over.
+                this.currentFill = step.color || "black"
                 this.currentBackground = null
                 this.currentSprite = null
+                this.currentTexts = []
                 this.hasExplicitFill = true
-                this.drawCinematicOverlay()
+                this.redrawPersistent()
                 // no duration effect (immediate)
                 break
             }
@@ -166,23 +173,28 @@ export const CutsceneRunner = {
                     if (!isNaN(v)) customHeightPercent = v
                 }
                 const customYPercent = typeof step.y === "number" ? step.y : null
-                if (fadeMs === 0) {
-                    if (isBg) this.currentBackground = img
-                    else {
+                // A new BACKGROUND is a new shot, so it also turns the narration page - the lines
+                // written over the last one do not belong over this one. A sprite does not: it
+                // arrives inside the shot that is already running, and Level 2's opening line is
+                // deliberately still up while Nogo emerges under it.
+                //
+                // Clearing happens in `commit`, not when the step starts, so a line stays up
+                // underneath a background that is still fading in and is covered gradually by it
+                // rather than snapping out on the first frame of the fade.
+                const commit = () => {
+                    if (isBg) {
+                        this.currentBackground = img
+                        this.currentTexts = []
+                    } else {
                         this.currentSprite = img
                         this.currentSpriteHeightPercent = customHeightPercent
                         this.currentSpriteYPercent = customYPercent
                     }
+                }
+                if (fadeMs === 0) {
+                    commit()
                     this.redrawPersistent()
                 } else {
-                    const commit = () => {
-                        if (isBg) this.currentBackground = img
-                        else {
-                            this.currentSprite = img
-                            this.currentSpriteHeightPercent = customHeightPercent
-                            this.currentSpriteYPercent = customYPercent
-                        }
-                    }
                     // If the player advances past this step mid-fade, lock the image in.
                     this._commitCurrent = commit
                     let startTs = null
@@ -214,16 +226,21 @@ export const CutsceneRunner = {
                 break
             }
             case "text": {
+                // A line is ADDED to the page rather than replacing it: give successive steps
+                // different `y` values and they stack, and the earlier lines stay readable while
+                // the new one arrives. Only a `fill` or a new background turns the page.
+                const line = { what: step.what, fontSize: step.fontSize, color: step.color, y: step.y, font: step.font }
                 const fadeMs = animation === "reveal" ? step.duration || 600 : 0
                 if (fadeMs === 0) {
-                    // Do not implicitly clear background; only redraw background layers if present.
+                    this.currentTexts.push(line)
                     this.redrawPersistent(false)
-                    this.drawText(step.what, step.fontSize, false, step.color, step.y, step.font)
                 } else {
-                    // If the player advances mid-reveal, paint the text fully opaque first.
+                    // The fading line is drawn on top of the page by the loop below and only joins
+                    // it once the step is left, so the reveal is not fighting an opaque copy of
+                    // itself. Committing also covers a player advancing mid-reveal.
                     this._commitCurrent = () => {
+                        this.currentTexts.push(line)
                         this.redrawPersistent(false)
-                        this.drawText(step.what, step.fontSize, false, step.color, step.y, step.font)
                     }
                     let startTs = null
                     const animate = (ts) => {
@@ -237,6 +254,7 @@ export const CutsceneRunner = {
                             if (this.currentBackground) this.drawBackground(this.currentBackground)
                             if (this.currentSprite)
                                 this.drawSprite(this.currentSprite, this.currentSpriteHeightPercent, this.currentSpriteYPercent)
+                            this.drawTexts()
                             this.drawCinematicOverlay()
                         } else {
                             this.redrawPersistent(false)
@@ -391,9 +409,24 @@ export const CutsceneRunner = {
             this._holdRafId = null
         }
     },
+    /**
+     * Repaints the whole frame from the persistent layers: base, sprite, narration, letterbox.
+     *
+     * The base is repainted every time, including for a text step, which is what lets a line be
+     * added to or removed from the page without leaving the previous painting underneath. That
+     * needs the LAST FILL COLOUR to be remembered (`currentFill`) - redrawing only the background
+     * and sprite used to be the only option on a black stage, and it meant text could accumulate
+     * but never be taken back.
+     *
+     * `allowImplicitFill` remains for the case where neither a background nor a `fill` has been
+     * seen yet, i.e. a sequence that opens on something other than `fill`.
+     */
     redrawPersistent: function (allowImplicitFill = true) {
         if (this.currentBackground) {
             this.drawBackground(this.currentBackground)
+        } else if (this.currentFill) {
+            this.ctx.fillStyle = this.currentFill
+            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height)
         } else if (allowImplicitFill && !this.hasExplicitFill) {
             // Only auto-fill black before any explicit fill has happened
             this.ctx.fillStyle = "black"
@@ -402,7 +435,15 @@ export const CutsceneRunner = {
         if (this.currentSprite) {
             this.drawSprite(this.currentSprite, this.currentSpriteHeightPercent, this.currentSpriteYPercent)
         }
+        this.drawTexts()
         this.drawCinematicOverlay()
+    },
+
+    /** Every narration line currently on the page, in the order it was written. */
+    drawTexts: function () {
+        for (const line of this.currentTexts || []) {
+            this.drawText(line.what, line.fontSize, false, line.color, line.y, line.font)
+        }
     },
 
     clearCanvas: function () {}, // no-op (handled per step)

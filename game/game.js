@@ -767,16 +767,19 @@ export const DoggoNogoCore = {
             ctx.fillStyle = glow
             ctx.fillRect(0, 0, w, h)
 
-            // Two-tone logo, matching the cover art: cyan hero vs hot-orange villain.
+            // Two-tone logo. The colours are the cover screen's wordmark, word for word (see
+            // `styleDoggo` / `styleNogo` / `styleSlash` in engine.js `showCoverScreen`): gold
+            // hero, cyan villain, purple slash. The loading screen used to run them the other
+            // way round, so the title changed colour between the two screens.
             const titlePx = Math.round(h * 0.045)
             ctx.font = `800 ${titlePx}px ${THEME.display}`
             const wDog = ctx.measureText("DOGGO").width
             const wSlash = ctx.measureText(" / ").width
             const wNogo = ctx.measureText("NOGO").width
             let tx = w / 2 - (wDog + wSlash + wNogo) / 2
-            drawGlowText(ctx, "DOGGO", tx, h * 0.42, titlePx, { color: THEME.accentCyan, align: "left" })
-            drawGlowText(ctx, " / ", tx + wDog, h * 0.42, titlePx, { color: THEME.ink, align: "left" })
-            drawGlowText(ctx, "NOGO", tx + wDog + wSlash, h * 0.42, titlePx, { color: THEME.accentHot, align: "left" })
+            drawGlowText(ctx, "DOGGO", tx, h * 0.42, titlePx, { color: THEME.accent, align: "left" })
+            drawGlowText(ctx, " / ", tx + wDog, h * 0.42, titlePx, { color: THEME.accentPurple, align: "left" })
+            drawGlowText(ctx, "NOGO", tx + wDog + wSlash, h * 0.42, titlePx, { color: THEME.accentCyan, align: "left" })
             ctx.textAlign = "center"
             ctx.fillStyle = THEME.inkSoft
             ctx.font = `600 ${Math.round(h * 0.032)}px ${THEME.font}`

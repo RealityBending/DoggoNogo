@@ -3,30 +3,72 @@
  */
 export const level1Cutscene = [
     { type: "fill", color: "black" },
-    { type: "text", what: "You are an investigator tasked with bringing down criminals that mistreat animals.", animation: "appear" },
+    {
+        type: "text",
+        what: "You are an investigator tasked with bringing down criminals that mistreat animals.",
+        animation: "appear",
+    },
     { type: "wait", duration: 3000 },
     { type: "sound", what: "level1/sound_intro_metaldoor.mp3" },
-    { type: "image", what: "level1/intro_background.webp", animation: "reveal", duration: 1000 },
+    {
+        type: "image",
+        what: "level1/intro_background.webp",
+        animation: "reveal",
+        duration: 1000,
+    },
     { type: "wait", duration: 1500 },
-    { type: "text", what: "But during your last raid, you heard something...", animation: "appear" },
+    // High, just under the top bar: this line is still up when the puppy is revealed below it,
+    // and at the default middle height it would be sitting across his head.
+    {
+        type: "text",
+        what: "But during your last raid, you heard something...",
+        animation: "appear",
+        y: 27,
+    },
     { type: "wait", duration: 1500 },
     { type: "sound", what: "level1/sound_intro_dogwhining.mp3" },
     { type: "wait", duration: 1500 },
-    { type: "image", what: "level1/player_1.webp", animation: "reveal", duration: 800 },
+    {
+        type: "image",
+        what: "level1/player_1.webp",
+        animation: "reveal",
+        duration: 800,
+    },
     { type: "wait", duration: 1000 },
-    { type: "image", what: "level1/intro_background.webp", animation: "appear" },
+    {
+        type: "image",
+        what: "level1/intro_background.webp",
+        animation: "appear",
+    },
     { type: "image", what: "level1/player_1.webp", animation: "appear" },
-    // The two lines are successive pages at the same height, each held by its own `wait`. They
-    // cannot be stacked the way Level 2's closing pair is: there is a background image on the
-    // stage here, so every text step repaints the corridor (`redrawPersistent` in
-    // game/cutscene.js) and wipes whatever line was drawn before it. Without the wait below, the
-    // first line lasted a single frame.
-    { type: "text", what: "A small puppy has been forgotten!", animation: "appear", y: 80 },
+    // Re-stating the background above turned the narration page (see `commit` in the image step,
+    // game/cutscene.js), so the line about hearing something is gone and these two have the
+    // bottom of the frame to themselves: the second lands UNDER the first, with the first still
+    // up, and the `wait` between them is what gives each its own beat.
+    {
+        type: "text",
+        what: "A small puppy has been forgotten!",
+        animation: "appear",
+        y: 80,
+    },
     { type: "wait", duration: 2200 },
-    { type: "text", what: "You decide to take him home, and name him...", animation: "appear", y: 80 },
+    {
+        type: "text",
+        what: "You decide to take him home, and name him...",
+        animation: "appear",
+        y: 88,
+    },
     { type: "wait", duration: 2000 },
     { type: "fill", color: "black" },
-    { type: "text", what: "Doggo", animation: "reveal", duration: 1000, fontSize: 96, background: "black", font: "display" },
+    {
+        type: "text",
+        what: "Doggo",
+        animation: "reveal",
+        duration: 1000,
+        fontSize: 96,
+        background: "black",
+        font: "display",
+    },
     { type: "wait", duration: 1000 },
 ]
 
@@ -38,7 +80,12 @@ export const level2Cutscene = [
     { type: "wait", duration: 1000 },
     // The opening line sits high, just under the top letterbox bar, so the cat has the middle
     // of the frame to himself.
-    { type: "text", what: "Meanwhile, on the other side of town...", animation: "appear", y: 27 },
+    {
+        type: "text",
+        what: "Meanwhile, on the other side of town...",
+        animation: "appear",
+        y: 27,
+    },
     { type: "wait", duration: 2000 },
     // Nogo's own sprite surfacing out of the dark, rather than a separate pair-of-eyes asset:
     // `emerge` grows the reveal from `focus`, which is aimed at his eyes (0.36, 0.69 of the
@@ -49,7 +96,15 @@ export const level2Cutscene = [
     // Placement: his ink starts ~20% down its box, so with a 40%-tall box centred at 53% the
     // tail tip lands at ~41% - clear of the line above - and the paws at 73%, leaving room for
     // the two closing lines below without touching the bottom bar.
-    { type: "image", what: "level2/player_1.webp", animation: "emerge", duration: 2600, height: 40, y: 53, focus: { x: 0.36, y: 0.69 } },
+    {
+        type: "image",
+        what: "level2/player_1.webp",
+        animation: "emerge",
+        duration: 2600,
+        height: 40,
+        y: 53,
+        focus: { x: 0.36, y: 0.69 },
+    },
     { type: "wait", duration: 2200 },
     // Both closing lines land under Nogo on one page, so the name and the appetite are read with
     // the cat in view rather than over black.
@@ -59,10 +114,26 @@ export const level2Cutscene = [
     // `fill` also drops the sprite, so Nogo is immediately re-placed at the same size and position,
     // with `appear` rather than a fade: he is already revealed, this is the same shot continuing.
     { type: "fill", color: "black" },
-    { type: "image", what: "level2/player_1.webp", animation: "appear", height: 40, y: 53 },
-    { type: "text", what: "This is NOGO, the alley cat.", animation: "appear", y: 80 },
+    {
+        type: "image",
+        what: "level2/player_1.webp",
+        animation: "appear",
+        height: 40,
+        y: 53,
+    },
+    {
+        type: "text",
+        what: "This is NOGO, the alley cat.",
+        animation: "appear",
+        y: 80,
+    },
     { type: "wait", duration: 1800 },
-    { type: "text", what: "And tonight, he is hungry.", animation: "appear", y: 88 },
+    {
+        type: "text",
+        what: "And tonight, he is hungry.",
+        animation: "appear",
+        y: 88,
+    },
     { type: "wait", duration: 2600 },
 ]
 
@@ -75,7 +146,14 @@ export const level2Cutscene = [
 //
 // Level 3's two panels have been made and are wired in below; Levels 4 and 5 are still standing
 // on placeholders.
-const artPlaceholder = (what) => ({ type: "text", what: `[ ART: ${what} ]`, animation: "appear", y: 45, color: "#8b98ab", fontSize: 28 })
+const artPlaceholder = (what) => ({
+    type: "text",
+    what: `[ ART: ${what} ]`,
+    animation: "appear",
+    y: 45,
+    color: "#8b98ab",
+    fontSize: 28,
+})
 
 // Level 3 - "Bone fever": a bone thrown from a passing car, and Doggo cannot help himself.
 // The level itself is his descent (terrace -> kitchen door -> kitchen, one background per
@@ -83,32 +161,84 @@ const artPlaceholder = (what) => ({ type: "text", what: `[ ART: ${what} ]`, anim
 export const level3Cutscene = [
     { type: "fill", color: "black" },
     { type: "wait", duration: 800 },
-    { type: "text", what: "Life at the new home is good. Doggo has everything a dog could want.", animation: "appear", y: 40 },
+    {
+        type: "text",
+        what: "Life at the new home is good. But Doggo still has a lot to learn.",
+        animation: "appear",
+        y: 40,
+    },
     { type: "wait", duration: 2400 },
-    { type: "text", what: "Almost.", animation: "appear", y: 50 },
+    {
+        type: "text",
+        what: "Like not chasing every bone that comes his way.",
+        animation: "appear",
+        y: 50,
+    },
     { type: "wait", duration: 1600 },
     { type: "fill", color: "black" },
     // Both panels are 16:9, so `CutsceneRunner` takes them as backgrounds and draws them
-    // full-bleed (game/cutscene.js `drawBackground`). A background repaints the frame, which
-    // means each narration line wipes the one before it - so the two lines under a panel are
-    // successive pages at the same height, not a stacked pair as on Level 2's black stage.
-    { type: "image", what: "level3/cutscene_car.webp", animation: "reveal", duration: 900 },
+    // full-bleed (game/cutscene.js `drawBackground`). Their two narration lines stack in the
+    // lower quarter the panels were composed to leave clear, at the same 80/88 as Level 2's
+    // closing pair; the panel's own `fill` is what clears them again for the next shot.
+    {
+        type: "image",
+        what: "level3/cutscene_car.webp",
+        animation: "reveal",
+        duration: 900,
+    },
     { type: "wait", duration: 1500 },
-    { type: "text", what: "One afternoon, a car speeds past the garden...", animation: "appear", y: 80 },
+    {
+        type: "text",
+        what: "One afternoon, a car speeds past the garden...",
+        animation: "appear",
+        y: 80,
+    },
     { type: "wait", duration: 2000 },
-    { type: "text", what: "...and someone throws a bone out of the window.", animation: "appear", y: 80 },
+    {
+        type: "text",
+        what: "...and someone throws a bone out of the window.",
+        animation: "appear",
+        y: 88,
+    },
     { type: "wait", duration: 2200 },
     { type: "fill", color: "black" },
-    { type: "image", what: "level3/cutscene_gate.webp", animation: "reveal", duration: 900 },
+    {
+        type: "image",
+        what: "level3/cutscene_gate.webp",
+        animation: "reveal",
+        duration: 900,
+    },
     { type: "wait", duration: 1500 },
-    { type: "text", what: "Doggo doesn't think. Doggo runs.", animation: "appear", y: 80 },
+    {
+        type: "text",
+        what: "Doggo doesn't think. Doggo runs.",
+        animation: "appear",
+        y: 80,
+    },
     { type: "wait", duration: 2000 },
-    { type: "text", what: "Down the street, round the corner, into the city... following the bone.", animation: "appear", y: 80 },
+    {
+        type: "text",
+        what: "Down the street, round the corner, into the city... following the bone.",
+        animation: "appear",
+        y: 88,
+    },
     { type: "wait", duration: 2400 },
     { type: "fill", color: "black" },
-    { type: "text", what: "Then the next one.", animation: "reveal", duration: 900, y: 46 },
+    {
+        type: "text",
+        what: "Then the next one.",
+        animation: "reveal",
+        duration: 900,
+        y: 46,
+    },
     { type: "wait", duration: 1400 },
-    { type: "text", what: "There is always a bigger bone.", animation: "reveal", duration: 900, y: 56 },
+    {
+        type: "text",
+        what: "There is always a bigger bone.",
+        animation: "reveal",
+        duration: 900,
+        y: 56,
+    },
     { type: "wait", duration: 2200 },
 ]
 
@@ -118,41 +248,103 @@ export const level3Cutscene = [
 export const level4Cutscene = [
     { type: "fill", color: "black" },
     { type: "wait", duration: 800 },
-    { type: "text", what: "Next door, in the alley, someone has heard the crashing pots.", animation: "appear", y: 40 },
+    {
+        type: "text",
+        what: "Next door, in the alley, someone has heard the crashing pots.",
+        animation: "appear",
+        y: 40,
+    },
     { type: "wait", duration: 2200 },
-    { type: "text", what: "A berserk dog in HIS neighbourhood? Bad for business.", animation: "appear", y: 50 },
+    {
+        type: "text",
+        what: "A berserk dog in HIS neighbourhood? Bad for business.",
+        animation: "appear",
+        y: 50,
+    },
     { type: "wait", duration: 2400 },
     { type: "fill", color: "black" },
-    artPlaceholder("Nogo grinning, a spool of red ribbon in his paws, a pile of bones beside him"), // -> level4/cutscene_ribbon.png
+    artPlaceholder(
+        "Nogo grinning, a spool of red ribbon in his paws, a pile of bones beside him",
+    ), // -> level4/cutscene_ribbon.png
     { type: "wait", duration: 1500 },
-    { type: "text", what: "Nogo knocks over a tray of fish. The Chef turns. Doggo doesn't.", animation: "appear", y: 72 },
+    {
+        type: "text",
+        what: "Nogo knocks over a tray of fish. The Chef turns. Doggo doesn't.",
+        animation: "appear",
+        y: 72,
+    },
     { type: "wait", duration: 2400 },
-    { type: "text", what: "So Nogo raids the gift shop instead...", animation: "appear", y: 82 },
+    {
+        type: "text",
+        what: "So Nogo raids the gift shop instead...",
+        animation: "appear",
+        y: 82,
+    },
     { type: "wait", duration: 2200 },
     { type: "fill", color: "black" },
-    artPlaceholder("a bone tied with red ribbons, blades pointing every which way"), // -> level4/cutscene_bone_ribboned.png
+    artPlaceholder(
+        "a bone tied with red ribbons, blades pointing every which way",
+    ), // -> level4/cutscene_bone_ribboned.png
     { type: "wait", duration: 1500 },
-    { type: "text", what: "A trail of ribboned bones, each looking bigger than the last, all the way home.", animation: "appear", y: 72 },
+    {
+        type: "text",
+        what: "A trail of ribboned bones, each looking bigger than the last, all the way home.",
+        animation: "appear",
+        y: 72,
+    },
     { type: "wait", duration: 2400 },
-    { type: "text", what: "Ribbons bend the eye. Doggo follows.", animation: "appear", y: 82 },
+    {
+        type: "text",
+        what: "Ribbons bend the eye. Doggo follows.",
+        animation: "appear",
+        y: 82,
+    },
     { type: "wait", duration: 2600 },
 ]
 
 export const level5Cutscene = [
     { type: "fill", color: "black" },
     { type: "wait", duration: 800 },
-    { type: "text", what: "Bones didn't work. Ribbons didn't work.", animation: "appear", y: 40 },
+    {
+        type: "text",
+        what: "Bones didn't work. Ribbons didn't work.",
+        animation: "appear",
+        y: 40,
+    },
     { type: "wait", duration: 2200 },
-    { type: "text", what: "So Nogo reaches for a cat's true weapon...", animation: "appear", y: 50 },
+    {
+        type: "text",
+        what: "So Nogo reaches for a cat's true weapon...",
+        animation: "appear",
+        y: 50,
+    },
     { type: "wait", duration: 2200 },
     { type: "fill", color: "black" },
-    { type: "text", what: "YARN", animation: "reveal", duration: 1000, fontSize: 96, background: "black", font: "display" },
+    {
+        type: "text",
+        what: "YARN",
+        animation: "reveal",
+        duration: 1000,
+        fontSize: 96,
+        background: "black",
+        font: "display",
+    },
     { type: "wait", duration: 1200 },
     { type: "fill", color: "black" },
     artPlaceholder("Nogo in the middle of a yarn mess, winding decoy balls"), // -> level5/cutscene_yarn.png
     { type: "wait", duration: 1500 },
-    { type: "text", what: "Decoys of every size, scattered around Doggo's balls.", animation: "appear", y: 72 },
+    {
+        type: "text",
+        what: "Decoys of every size, scattered around Doggo's balls.",
+        animation: "appear",
+        y: 72,
+    },
     { type: "wait", duration: 2200 },
-    { type: "text", what: "Ignore the yarn. Judge only the ball.", animation: "appear", y: 82 },
+    {
+        type: "text",
+        what: "Ignore the yarn. Judge only the ball.",
+        animation: "appear",
+        y: 82,
+    },
     { type: "wait", duration: 2400 },
 ]
