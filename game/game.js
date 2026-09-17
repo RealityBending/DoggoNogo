@@ -837,6 +837,12 @@ export const DoggoNogoCore = {
         if (!(target instanceof HTMLCanvasElement)) return
         const ctx = target.getContext("2d")
         if (!ctx) return
+        // The score screen this replaces is still animating: its confetti-and-pulsing-hint loop
+        // runs until cancelled (see `showScoreScreen`), and the engine only cancels it on its way
+        // INTO the next level — which is exactly what does not happen when there is no next level.
+        // Without this, the end screen is painted and repainted over on the following frame, and
+        // pressing SPACE looks like it does nothing at all.
+        DoggoNogoUI.cancelScoreScreen()
         const w = target.width
         const h = target.height
         ctx.save()

@@ -270,7 +270,8 @@
                             if (e.code === "Space") {
                                 document.removeEventListener("keydown", proceed)
                                 if (isLast) {
-                                    DoggoNogoUI.ambient.set(null)
+                                    // `renderEndScreen` stops the score screen's animation itself;
+                                    // the engine has already cleared the ambient surround.
                                     DoggoNogoCore.renderEndScreen(canvas)
                                 } else {
                                     runLevel(index + 1)
