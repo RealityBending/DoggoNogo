@@ -5,6 +5,8 @@
  */
 
 import { DoggoNogoEngine } from "./engine.js"
+import { DoggoNogoUI } from "./game.js"
+import { DoggoNogoInput } from "./input.js"
 import { level1 } from "./levels/level1.js"
 import { level2 } from "./levels/level2.js"
 import { level1Cutscene, level2Cutscene } from "./levels/cutscenes.js"
@@ -129,7 +131,7 @@ export const DoggoNogo = {
                 DoggoNogoEngine.run(canvas, level, {
                     assetBasePath: normalizeBasePath(assetBasePath),
                     levelParams: { trialsNumber },
-                    continueHint: "Press SPACE to continue",
+                    continueHint: DoggoNogoUI.words.continueHint,
                     cutscene,
                     skipCover,
                     otherLevels: [level1, level2],
@@ -159,6 +161,9 @@ export const DoggoNogo = {
                             }
                         }
                         document.addEventListener("keydown", onSpace)
+                        // The level's tap mode dies with the level; this screen still needs one.
+                        DoggoNogoInput.attach(canvas)
+                        DoggoNogoInput.setMode(DoggoNogoInput.SPACE)
                     },
                 }).catch((err) => {
                     console.error("Failed to run game engine", err)

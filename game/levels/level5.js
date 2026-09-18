@@ -26,6 +26,7 @@
  */
 
 import { DoggoNogoStimuli } from "../stimuli.js"
+import { DoggoNogoUI } from "../game.js"
 import { DoggoNogoIllusionLevel, illusionDefaultParams, borrowedLevel1Assets, round4 } from "./illusion.js"
 
 export const level5 = {
@@ -65,6 +66,12 @@ export const level5 = {
         "Press the arrow key pointing at the BIGGER one.",
         "Ignore the circles around them — they play tricks!",
     ],
+    // Same beats, named for a screen rather than a keyboard (see `showInstructionScreen` in illusion.js).
+    touchInstructionLines: [
+        "Two treats appear either side of Doggo.",
+        "Tap the side with the BIGGER one.",
+        "Ignore the circles around them — they play tricks!",
+    ],
 
     /**
      * Example pair: the illusion at full tilt (small treat in a big ring, big treat in a small
@@ -92,11 +99,11 @@ export const level5 = {
     /** Phase-break overlay lines announcing the ramp (see `params.phases`). */
     getBreakOverlayLines: function () {
         if (this.state.phaseIndex === 1) {
-            return ["The circles around the treats grow bolder —", "judge only the treat in the middle!", "", "Press SPACE to continue"]
+            return ["The circles around the treats grow bolder —", "judge only the treat in the middle!", "", DoggoNogoUI.words.continueHint]
         } else if (this.state.phaseIndex === 2) {
-            return ["Final phase: the differences get subtle.", "Look closely!", "", "Press SPACE to continue"]
+            return ["Final phase: the differences get subtle.", "Look closely!", "", DoggoNogoUI.words.continueHint]
         }
-        return ["Press SPACE to continue"]
+        return [DoggoNogoUI.words.continueHint]
     },
 
     /** Ring radius and context count for one figure, Pyllusion's rules (see the file header). */

@@ -121,10 +121,6 @@ export const DoggoNogoStimuli = {
      * @param {Array<{color: string, width: number}>} [opts.outlines]  outermost first; see `paintShape`
      * @param {string} [opts.outline]        single-outline shorthand
      * @param {number} [opts.outlineWidth]
-     * @param {object} [opts.fins]       Müller-Lyer ribbon (see `finsPath`/`finBandsPath`), all px:
-     *                                   { angle (radians from the outward long axis), length,
-     *                                     thickness, inset (band centre's distance in from each
-     *                                     tip), bandWidth, bandHeight, fill }
      */
     drawBone: function (ctx, opts) {
         const thickness = opts.thickness
@@ -134,71 +130,8 @@ export const DoggoNogoStimuli = {
         ctx.save()
         ctx.translate(opts.centerX, opts.centerY)
         ctx.rotate(opts.angle || 0)
-        // Ribbon sandwich: blades BEHIND the bone (its silhouette — the extent being judged —
-        // stays intact), then the bone, then the bands OVER it, so band + blades read as one
-        // ribbon tied around the bone. Everything shares the bone's rotated frame, so the fin
-        // angle is always relative to the bone's own long axis.
-        const fins = opts.fins
-        if (fins && fins.length > 0) {
-            paintShape(ctx, [(c) => this.finsPath(c, length, fins)], { fill: fins.fill })
-        }
         paintShape(ctx, [(c) => this.bonePath(c, length, thickness)], { outlines, fill: opts.fill })
-        if (fins && fins.length > 0) {
-            paintShape(ctx, [(c) => this.finBandsPath(c, length, fins)], { fill: fins.fill })
-        }
         ctx.restore()
-    },
-
-    /**
-     * X-coordinates of the two ribbon-band centres of a ribboned bone (see `drawBone`'s `fins`).
-     * The bands sit `inset` inside each tip, on the shaft, and are the blades' origin, so band
-     * and blades read as one ribbon tied around the bone.
-     */
-    finRootXs: function (boneLength, inset) {
-        return [-1, 1].map((sx) => sx * (boneLength / 2 - inset))
-    },
-
-    /**
-     * Traces the four Müller-Lyer blades of a ribboned bone into one compound path.
-     *
-     * Two blades per side, symmetric about the long axis, each rooted at its ribbon band (NOT at
-     * the bone tip — blades floating off the tips read as detached). `fins.angle` is the angle
-     * between each blade and the *outward* direction of the long axis, so it reads directly as
-     * the illusion parameter:
-     *  - angle < 90° sweeps the blades out past the tip (the classic "tail" figure — the bone
-     *    is perceived as longer);
-     *  - angle = 90° leaves them perpendicular (a ribbon with no length distortion);
-     *  - angle > 90° folds them back over the shaft (the "arrowhead" figure — perceived shorter).
-     *
-     * Each blade is a plain rectangle; rounded lineJoin in `paintShape` softens the corners.
-     */
-    finsPath: function (ctx, boneLength, fins) {
-        const hw = fins.thickness / 2
-        ctx.beginPath()
-        for (const rootX of this.finRootXs(boneLength, fins.inset)) {
-            const sx = Math.sign(rootX) || 1
-            for (const sy of [-1, 1]) {
-                const a = sy * fins.angle
-                // Outward along the long axis for this side, rotated by the fin angle.
-                const dirX = sx * Math.cos(a)
-                const dirY = Math.sin(a)
-                const nx = -dirY
-                const ny = dirX
-                ctx.moveTo(rootX + nx * hw, ny * hw)
-                ctx.lineTo(rootX + dirX * fins.length + nx * hw, dirY * fins.length + ny * hw)
-                ctx.lineTo(rootX + dirX * fins.length - nx * hw, dirY * fins.length - ny * hw)
-                ctx.lineTo(rootX - nx * hw, -ny * hw)
-                ctx.closePath()
-            }
-        }
-    },
-
-    /** Traces the two ribbon bands (upright rectangles wrapped around the shaft) into one path. */
-    finBandsPath: function (ctx, boneLength, fins) {
-        ctx.beginPath()
-        for (const rootX of this.finRootXs(boneLength, fins.inset)) {
-            ctx.rect(rootX - fins.bandWidth / 2, -fins.bandHeight / 2, fins.bandWidth, fins.bandHeight)
-        }
     },
 
     /**
@@ -217,6 +150,275 @@ export const DoggoNogoStimuli = {
         const lobeOffsetY = thickness * 0.42
         const lobeCenterX = Math.max(0, length / 2 - lobeRadius)
         return 2 * (Math.hypot(lobeCenterX, lobeOffsetY) + lobeRadius + outlineSpill(outlines))
+    },
+
+    // -----------------------------------------------------------------------
+    // Sausage (Level 4, Müller-Lyer)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Landmarks of a tied sausage along its long axis, centred on the origin, in the units given.
+     *
+     * Both ends are built the same way, from the body outward: the body pinches into a narrow
+     * casing neck, a string is knotted around that neck, and the twisted casing stub shows beyond
+     * the knot. `length` is the full tip-to-tip extent (stub end to stub end), so the number a
+     * level logs is the extent on screen, as for `drawBone`. The body is therefore
+     * `length - 2 * 0.64 * thickness`, and the knot centre — where the string's loose ends leave,
+     * i.e. the Müller-Lyer vertex — sits `0.46 * thickness` inside each tip. Neck, knot and stub
+     * are fixed multiples of the thickness, so two sausages of different length differ in body
+     * only, and the stubs add the same extent to each.
+     */
+    sausageGeometry: function (length, thickness) {
+        const t = thickness
+        // Below ~1.2 thicknesses of body the shape stops being a sausage; clamp there.
+        const halfBody = Math.max(0.6 * t, length / 2 - 0.64 * t)
+        return {
+            halfBody,
+            neckStart: halfBody,
+            neckEnd: halfBody + 0.36 * t,
+            knotX: halfBody + 0.18 * t,
+            stubStart: halfBody + 0.36 * t,
+            stubEnd: Math.max(halfBody + 0.36 * t, length / 2),
+        }
+    },
+
+    /**
+     * Traces the sausage body and its two casing necks into the current path: a capsule plus one
+     * rectangle per neck, all wound the same way so a fill renders their union without seams.
+     */
+    sausagePath: function (ctx, length, thickness) {
+        const t = thickness
+        const g = this.sausageGeometry(length, t)
+        ctx.beginPath()
+        ctx.roundRect(-g.halfBody, -t / 2, 2 * g.halfBody, t, t / 2)
+        for (const sx of [-1, 1]) {
+            // The neck overlaps the body cap and the stub by a hair, so no gap opens at either join.
+            const x0 = sx > 0 ? g.neckStart - 0.02 * t : -(g.neckEnd + 0.02 * t)
+            ctx.rect(x0, -0.14 * t, g.neckEnd - g.neckStart + 0.04 * t, 0.28 * t)
+        }
+    },
+
+    /**
+     * Traces one twisted casing stub in a local frame whose origin is the stub's root and whose +x
+     * points outward: a tapering tail with a slight waist, ending in a small lump.
+     */
+    sausageStubPath: function (ctx, stubLength, thickness) {
+        const t = thickness
+        const l = stubLength
+        ctx.beginPath()
+        ctx.moveTo(0, -0.13 * t)
+        ctx.lineTo(l * 0.55, -0.09 * t)
+        ctx.lineTo(l * 0.75, -0.13 * t)
+        ctx.lineTo(l, -0.06 * t)
+        ctx.lineTo(l, 0.06 * t)
+        ctx.lineTo(l * 0.75, 0.13 * t)
+        ctx.lineTo(l * 0.55, 0.09 * t)
+        ctx.lineTo(0, 0.13 * t)
+        ctx.closePath()
+    },
+
+    /**
+     * Draws one tied sausage: the Müller-Lyer stimulus.
+     *
+     * The string knotted around each neck has two loose ends, and those ends are the illusion's
+     * fins. `string.angle` is the angle between each loose end and the *outward* direction of the
+     * long axis, so it reads directly as the illusion parameter:
+     *  - angle < 90° splays the ends out past the tip (the "tail" figure — the sausage is
+     *    perceived as longer);
+     *  - angle = 90° leaves them perpendicular (no length distortion);
+     *  - angle > 90° folds them back over the body (the "arrowhead" figure — perceived shorter).
+     * The ends are drawn dead straight on purpose: a curve gives the eye several angles at once.
+     *
+     * Layering, back to front: string ends (behind everything, so the body's silhouette — the
+     * extent being judged — stays intact), casing stubs, body with its outline, then the shading
+     * clipped to the body, then the knots over the necks. The shade band, bloom veil and highlight
+     * all end a fixed distance inside the body's caps, so none of them offers a second endpoint to
+     * compare; there is no speckle or other lengthwise texture for the same reason (see the file
+     * header).
+     *
+     * @param {CanvasRenderingContext2D} ctx
+     * @param {object} opts
+     * @param {number} opts.centerX      centre of the sausage, in canvas px
+     * @param {number} opts.centerY
+     * @param {number} opts.length       tip-to-tip extent (stub end to stub end), in canvas px
+     * @param {number} opts.thickness    body height, in canvas px
+     * @param {number} [opts.angle]      rotation in radians (0 = lying along +x)
+     * @param {string} opts.fill         body colour
+     * @param {string} [opts.shade]      darker band along the lower half of the body
+     * @param {string} [opts.highlight]  lighter stripe along the upper body
+     * @param {string} [opts.bloom]      translucent veil over the upper body (a cured sausage's flour)
+     * @param {string} [opts.casingFill] colour of the twisted casing stubs
+     * @param {Array<{color: string, width: number}>} [opts.outlines]  outermost first; see `paintShape`
+     * @param {object} opts.string       { angle (radians from the outward long axis), length (px),
+     *                                     fill, dark (thread shadow / knot crease colour) }
+     */
+    drawSausage: function (ctx, opts) {
+        const t = opts.thickness
+        const length = Math.max(opts.length, 2.48 * t)
+        const g = this.sausageGeometry(length, t)
+        const outlines = opts.outlines || []
+        const str = opts.string
+        ctx.save()
+        ctx.translate(opts.centerX, opts.centerY)
+        ctx.rotate(opts.angle || 0)
+
+        // 1. Loose string ends, rooted at each knot centre, behind everything.
+        if (str && str.length > 0) {
+            for (const sx of [-1, 1]) {
+                for (const sy of [-1, 1]) {
+                    const a = sy * str.angle
+                    ctx.save()
+                    ctx.translate(sx * g.knotX, 0)
+                    ctx.rotate(Math.atan2(Math.sin(a), sx * Math.cos(a)))
+                    if (sx * sy < 0) ctx.scale(1, -1)
+                    this.drawStringEnd(ctx, str.length, t, str, outlines)
+                    ctx.restore()
+                }
+            }
+        }
+
+        // 2. Casing stubs beyond the knots.
+        const stubLength = g.stubEnd - g.stubStart
+        if (stubLength > 0) {
+            for (const sx of [-1, 1]) {
+                ctx.save()
+                ctx.translate(sx * g.stubStart, 0)
+                if (sx < 0) ctx.scale(-1, 1)
+                paintShape(ctx, [(c) => this.sausageStubPath(c, stubLength, t)], { outlines, fill: opts.casingFill || "#f0d7c3" })
+                // two creases where the casing is twisted
+                ctx.strokeStyle = "rgba(120,70,50,0.45)"
+                ctx.lineWidth = 0.025 * t
+                ctx.beginPath()
+                for (const u of [0.25, 0.45]) {
+                    ctx.moveTo(stubLength * u, -0.08 * t)
+                    ctx.lineTo(stubLength * (u + 0.1), 0.08 * t)
+                }
+                ctx.stroke()
+                ctx.restore()
+            }
+        }
+
+        // 3. Body (+ necks) with its outline, then shading clipped to it.
+        paintShape(ctx, [(c) => this.sausagePath(c, length, t)], { outlines, fill: opts.fill })
+        ctx.save()
+        this.sausagePath(ctx, length, t)
+        ctx.clip()
+        const hb = g.halfBody
+        if (opts.shade) {
+            ctx.fillStyle = opts.shade
+            ctx.beginPath()
+            ctx.roundRect(-hb, 0.18 * t, 2 * hb, t, t / 2)
+            ctx.fill()
+        }
+        if (opts.bloom) {
+            ctx.fillStyle = opts.bloom
+            ctx.beginPath()
+            ctx.roundRect(-hb, -t / 2, 2 * hb, 0.78 * t, t / 2)
+            ctx.fill()
+        }
+        if (opts.highlight) {
+            ctx.fillStyle = opts.highlight
+            ctx.beginPath()
+            ctx.roundRect(-hb + 0.3 * t, -0.36 * t, 2 * hb - 0.6 * t, 0.16 * t, 0.08 * t)
+            ctx.fill()
+        }
+        ctx.restore()
+
+        // 4. Knots over the necks: two wraps of string plus the lump where the ends leave.
+        if (str) {
+            const ink = outlines.length ? outlines[outlines.length - 1] : null
+            const knotOutlines = ink ? [{ color: ink.color, width: ink.width * 0.5 }] : []
+            for (const sx of [-1, 1]) {
+                const kx = sx * g.knotX
+                paintShape(
+                    ctx,
+                    [
+                        (c) => {
+                            c.beginPath()
+                            c.roundRect(kx - 0.15 * t, -0.28 * t, 0.3 * t, 0.56 * t, 0.07 * t)
+                        },
+                    ],
+                    { outlines: knotOutlines, fill: str.fill },
+                )
+                ctx.strokeStyle = str.dark || str.fill
+                ctx.lineWidth = 0.035 * t
+                ctx.beginPath()
+                ctx.moveTo(kx, -0.26 * t)
+                ctx.lineTo(kx, 0.26 * t)
+                ctx.stroke()
+                paintShape(
+                    ctx,
+                    [
+                        (c) => {
+                            c.beginPath()
+                            c.arc(kx, 0, 0.15 * t, 0, Math.PI * 2)
+                        },
+                    ],
+                    { outlines: knotOutlines, fill: str.fill },
+                )
+                ctx.fillStyle = str.dark || str.fill
+                ctx.beginPath()
+                ctx.arc(kx - 0.03 * t, -0.03 * t, 0.05 * t, 0, Math.PI * 2)
+                ctx.fill()
+            }
+        }
+        ctx.restore()
+    },
+
+    /**
+     * One loose end of string in a local frame: origin at the knot, +x along the string. A
+     * straight, slightly tapered strand with a thread texture and a three-strand frayed tip.
+     * The tip's little fan is far from the vertex and identical on every end.
+     */
+    drawStringEnd: function (ctx, stringLength, thickness, string, outlines) {
+        const t = thickness
+        const l = stringLength
+        const body = l * 0.9
+        const ink = outlines.length ? outlines[outlines.length - 1] : null
+        const strandOutlines = ink ? [{ color: ink.color, width: ink.width * 0.65 }] : []
+        paintShape(
+            ctx,
+            [
+                (c) => {
+                    c.beginPath()
+                    c.moveTo(0, -0.09 * t)
+                    c.lineTo(body, -0.07 * t)
+                    c.lineTo(body, 0.07 * t)
+                    c.lineTo(0, 0.09 * t)
+                    c.closePath()
+                },
+            ],
+            { outlines: strandOutlines, fill: string.fill },
+        )
+        // thread texture: short diagonal ticks along the strand
+        ctx.strokeStyle = string.dark || string.fill
+        ctx.lineWidth = 0.025 * t
+        ctx.lineCap = "round"
+        ctx.beginPath()
+        for (let i = 1; i < 9; i++) {
+            const x = (body * i) / 9
+            ctx.moveTo(x - 0.05 * t, -0.06 * t)
+            ctx.lineTo(x + 0.05 * t, 0.06 * t)
+        }
+        ctx.stroke()
+        // frayed tip: three short strands fanning from the end
+        const fan = (c) => {
+            c.beginPath()
+            for (const a of [-0.4, 0, 0.4]) {
+                c.moveTo(l * 0.88, 0)
+                c.lineTo(l * 0.88 + Math.cos(a) * 0.12 * l, Math.sin(a) * 0.12 * l)
+            }
+        }
+        if (ink) {
+            ctx.strokeStyle = ink.color
+            ctx.lineWidth = 0.11 * t
+            fan(ctx)
+            ctx.stroke()
+        }
+        ctx.strokeStyle = string.fill
+        ctx.lineWidth = 0.05 * t
+        fan(ctx)
+        ctx.stroke()
     },
 
     // -----------------------------------------------------------------------

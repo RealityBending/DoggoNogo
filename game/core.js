@@ -47,6 +47,7 @@
  */
 
 import { DoggoNogoCore, DoggoNogoUI } from "./game.js"
+import { DoggoNogoInput } from "./input.js"
 
 // Design canvas (16:9); see the note on `REF_W` in game.js.
 const REF_W = 1920
@@ -70,9 +71,14 @@ export const DoggoNogoBaseLevel = {
     /**
      * Time of an input event in the level clock. `event.timeStamp` is when the input actually
      * happened, which is earlier (and steadier) than reading a clock inside the handler.
+     *
+     * A touch arrives as a synthetic keyboard event (game/input.js), and a dispatched event's
+     * `timeStamp` is the moment of dispatch rather than the moment of the touch. The adapter
+     * carries the original pointer timestamp across on `doggoSourceTime`, which is preferred here
+     * so a tapped response is timed from the finger, not from the translation.
      */
     eventTime: function (e) {
-        const t = e && e.timeStamp
+        const t = e && typeof e.doggoSourceTime === "number" ? e.doggoSourceTime : e && e.timeStamp
         // Guard against legacy epoch-based timestamps, which are not on the performance clock.
         if (typeof t !== "number" || t <= 0 || t > 1e12) return this.now()
         return t + this.state.clockOffset
@@ -137,6 +143,19 @@ export const DoggoNogoBaseLevel = {
         document.addEventListener("keydown", this.boundKeyDownHandler)
         this.boundClickHandler = this.handleClick.bind(this)
         canvas.addEventListener("click", this.boundClickHandler)
+
+        // Touch: what a tap means changes several times inside a single level, so the adapter is
+        // given a function rather than a fixed mapping and re-reads the state at every tap.
+        DoggoNogoInput.attach(canvas)
+        DoggoNogoInput.setMode(() => {
+            // The jsPsych end overlay draws a real Continue button and handles its own click
+            // (`handleClick`); swallowing the tap here would leave it unpressable.
+            if (this.state.endOverlayVisible && this.state.showContinueButton) return null
+            // The score screen, and the phase-break overlay once it invites the player on, both
+            // wait on SPACE -- see `handleKeyDown` in each level.
+            if (this.state.gameState === "done" || this.state.inBreak) return DoggoNogoInput.SPACE
+            return { keys: this.startKeys || ["ArrowDown"] }
+        })
     },
 
     /** Removes the input handlers bound by `attachInput`. */
@@ -248,11 +267,14 @@ export const DoggoNogoBaseLevel = {
             config.drawVisual(ctx, { top: visualTop, bottom: visualBottom, cy: (visualTop + visualBottom) / 2, w, h }, elapsed)
         }
 
-        // Pulsing start prompt
-        if (config.promptSegments && elapsed > 900) {
+        // Pulsing start prompt. `drawPromptRow` already renames the caps for touch, which is
+        // enough for a one-key level ("TAP to start"); a level whose row needs different wording
+        // rather than a different cap gives a `touchPromptSegments` of its own.
+        const prompt = (DoggoNogoInput.isTouch && config.touchPromptSegments) || config.promptSegments
+        if (prompt && elapsed > 900) {
             ctx.save()
             ctx.globalAlpha = 0.55 + 0.45 * fx.pulse01(elapsed, 1400)
-            fx.drawPromptRow(ctx, w / 2, h * 0.9, h * 0.048, config.promptSegments, { color: theme.accent })
+            fx.drawPromptRow(ctx, w / 2, h * 0.9, h * 0.048, prompt, { color: theme.accent })
             ctx.restore()
         }
     },
@@ -604,7 +626,7 @@ export const DoggoNogoBaseLevel = {
 
     /** Text lines shown on the phase-break overlay. Override for phase-specific instructions. */
     getBreakOverlayLines: function () {
-        return ["Press SPACE to continue"]
+        return [DoggoNogoUI.words.continueHint]
     },
 
     /**

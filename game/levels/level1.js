@@ -280,7 +280,9 @@ export const level1 = {
             lines: [
                 "Doggo is in urgent need of care and feeding.",
                 "When a bone appears, grab it as fast as you can.",
-                "Careful - pressing before it appears will startle Doggo!",
+                DoggoNogoUI.input.isTouch
+                    ? "Careful - tapping before it appears will startle Doggo!"
+                    : "Careful - pressing before it appears will startle Doggo!",
             ],
             promptSegments: [{ t: "Press" }, { k: "▼" }, { t: "to start" }],
             drawVisual: (ctx, layout, elapsed) => {
@@ -310,8 +312,13 @@ export const level1 = {
                     outlines: geom.outlines,
                 })
                 ctx.restore()
-                // Key mapping hint, clear of the bone at every angle (hence the envelope, not the length)
-                fx.drawKeycap(ctx, layout.w / 2 - envelopePx / 2 - layout.h * 0.05, cy, layout.h * 0.05, "▼")
+                // Key mapping hint, clear of the bone at every angle (hence the envelope, not the length).
+                // The touch cap reads "TAP", a word, so `drawKeycap` gives it a wide cap (2.9x the
+                // height rather than 1.05x); it is pushed out by half that difference so it clears the
+                // bone exactly as the arrow cap does, whose position is left untouched.
+                const capH = layout.h * 0.05
+                const capGap = layout.h * 0.05 + (DoggoNogoUI.input.isTouch ? capH * (2.9 - 1.05) * 0.5 : 0)
+                fx.drawKeycap(ctx, layout.w / 2 - envelopePx / 2 - capGap, cy, capH, "▼")
             },
         })
     },

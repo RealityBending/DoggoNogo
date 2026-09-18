@@ -3,6 +3,7 @@
  */
 
 import { DoggoNogoAssets } from "./assets.js"
+import { DoggoNogoInput } from "./input.js"
 
 // Shared audio instance reused across levels for the phase-complete cue.
 let phaseCompleteAudio = null
@@ -197,10 +198,25 @@ function drawPanel(ctx, x, y, w, h, r, opts = {}) {
 }
 
 /**
+ * A keycap's label on the device actually in front of the player.
+ *
+ * On touch there is no SPACE bar and no arrow key to press, so those caps name the gesture
+ * instead. The left/right arrows are deliberately left alone: they are drawn at the two sides of
+ * the stage (see the instruction visuals in level2.js / illusion.js), where they already say
+ * "this side" — which is exactly what the tap adapter maps them to.
+ */
+function capLabel(label) {
+    if (!DoggoNogoInput.isTouch) return label
+    if (label === "SPACE" || label === "▼") return "TAP"
+    return label
+}
+
+/**
  * Draws a 3D-looking keyboard keycap centered on (cx, cy). `h` is the cap height;
  * labels longer than 2 chars (e.g. "SPACE") get a wide cap. Returns the cap width.
  */
 function drawKeycap(ctx, cx, cy, h, label, opts = {}) {
+    label = capLabel(label)
     const isWord = String(label).length > 2
     const w = isWord ? h * 2.9 : h * 1.05
     const x = cx - w / 2
@@ -396,9 +412,14 @@ function drawPromptRow(ctx, cx, cy, capH, segments, opts = {}) {
     const font = `600 ${Math.round(capH * 0.62)}px ${THEME.font}`
     ctx.font = font
     const gap = capH * 0.45
+    // On touch the caps rename themselves (`capLabel`), which leaves "Press TAP to continue".
+    // Dropping a leading "Press" turns that into "TAP to continue" and costs the keyboard row
+    // nothing. Rows whose wording needs more than this supply their own `touchPromptSegments`.
+    if (DoggoNogoInput.isTouch && segments.length && segments[0].t === "Press") segments = segments.slice(1)
     const items = segments.map((s) => {
         if (s.k !== undefined) {
-            const isWord = String(s.k).length > 2
+            // Width has to be measured from the label that will actually be drawn.
+            const isWord = String(capLabel(s.k)).length > 2
             return { ...s, w: isWord ? capH * 2.9 : capH * 1.05 }
         }
         return { ...s, w: ctx.measureText(s.t).width }
@@ -455,10 +476,31 @@ function drawVignette(ctx, w, h, strength = 0.55) {
     ctx.restore()
 }
 
+/**
+ * The handful of phrases that name an input, in the two forms the game can be played in.
+ *
+ * Only the ones repeated across levels live here; a line of prose particular to one level (e.g.
+ * "Press the arrow key pointing at the LONGER bone") stays in that level and picks its wording
+ * from `DoggoNogoUI.input.isTouch` directly, which reads better than a phrasebook entry used once.
+ */
+const WORDS = {
+    get continueHint() {
+        return DoggoNogoInput.isTouch ? "Tap to continue" : "Press SPACE to continue"
+    },
+    get finishHint() {
+        return DoggoNogoInput.isTouch ? "Tap to finish" : "Press SPACE to finish"
+    },
+}
+
 export const DoggoNogoUI = {
     // Shared visual language: colors/fonts plus the low-level drawing helpers,
     // consumed by the engine, the intro runner and the levels.
     theme: THEME,
+
+    // Touch adapter (game/input.js). Exposed here so levels and the engine can ask what device
+    // they are on without each importing the module.
+    input: DoggoNogoInput,
+    words: WORDS,
     fx: {
         roundRectPath,
         drawImageCover,

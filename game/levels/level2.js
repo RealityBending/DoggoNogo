@@ -255,10 +255,13 @@ export const level2 = {
             title: "Here comes NOGO",
             lines: [
                 "NOGO the cat is on the lookout for fish leftovers.",
-                "Press the arrow matching the DIRECTION the fishbone points —",
+                DoggoNogoUI.input.isTouch
+                    ? "Tap the side matching the DIRECTION the fishbone points —"
+                    : "Press the arrow matching the DIRECTION the fishbone points —",
                 "no matter where on the screen it appears!",
             ],
             promptSegments: [{ t: "Press" }, { k: "◀" }, { t: "or" }, { k: "▶" }, { t: "to start" }],
+            touchPromptSegments: [{ t: "Tap" }, { k: "◀" }, { t: "or" }, { k: "▶" }, { t: "to start" }],
             drawVisual: (ctx, layout, elapsed) => {
                 // One fishbone per direction with its matching keycap, bobbing in antiphase. Both are
                 // drawn with the same fill, which is the point: the arrow to press is given by which
@@ -325,13 +328,13 @@ export const level2 = {
                 "The bone can now also appear above or below!",
                 "Respond according to its DIRECTION (left/right).",
                 "",
-                "Press SPACE to continue",
+                DoggoNogoUI.words.continueHint,
             ]
         } else if (this.state.phaseIndex === 2) {
             // Entering Phase 3: introduce incongruent horizontal trials
-            return ["Don't forget to respond according to the DIRECTION of the bone (left/right).", "", "Press SPACE to continue"]
+            return ["Don't forget to respond according to the DIRECTION of the bone (left/right).", "", DoggoNogoUI.words.continueHint]
         }
-        return ["Press SPACE to continue"]
+        return [DoggoNogoUI.words.continueHint]
     },
 
     /**

@@ -243,8 +243,14 @@ export const level3Cutscene = [
 ]
 
 // Level 4 - Nogo intervenes: a berserk dog next to his alley is bad for business, so he
-// distracts the Chef and lays a trail of ribboned bones home. Ribbons bend the eye
-// (Muller-Lyer), which is the level's illusion.
+// distracts the Chef and lays a trail home. Muller-Lyer is the level's illusion.
+//
+// TODO (narrative rework): this sequence was written for RIBBONED BONES. The level's stimulus is
+// now a tied SAUSAGE (game/stimuli.js `drawSausage`): a string knotted around each end, its loose
+// ends splayed at the illusion angle. Every ribbon/bone beat below - the gift-shop raid, the
+// spool of ribbon, "Ribbons bend the eye" - and the art placeholders need rewriting around
+// strings of sausages (e.g. Nogo raiding the Chef's cold room). Level 5's opening line
+// ("Bones didn't work. Ribbons didn't work.") follows from this and needs the same pass.
 export const level4Cutscene = [
     { type: "fill", color: "black" },
     { type: "wait", duration: 800 },

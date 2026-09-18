@@ -8,9 +8,34 @@ Play the game:
     - Ultra-short testing version (3 trials per level): [https://realitybending.github.io/DoggoNogo/game/?trials=3](https://realitybending.github.io/DoggoNogo/game/?trials=3)
     - Ultra-short version (start at Level 3): [https://realitybending.github.io/DoggoNogo/game/?trials=3&level=3](https://realitybending.github.io/DoggoNogo/game/?trials=3&level=3)
     - Finished levels only (1-3): [https://realitybending.github.io/DoggoNogo/game/?levels=1-3](https://realitybending.github.io/DoggoNogo/game/?levels=1-3)
+    - Plain (non-gamified) version, ultra-short: [https://realitybending.github.io/DoggoNogo/game/?gamified=0&trials=3](https://realitybending.github.io/DoggoNogo/game/?gamified=0&trials=3)
 
 `?level=N` starts at a level and plays on to the end; `?levels=` runs only the levels listed and
 then finishes, as a range (`?levels=1-3`), a list (`?levels=1,3`) or a mix (`?levels=1-2,5`).
+
+`?gamified=0` runs a barebones version of the same tasks — no cover screen, cutscenes, artwork,
+character, score, sounds or trial feedback, just abstract red stimuli on grey — for comparing
+gamified against standard experimental presentation. Trial timing, the adaptive threshold, the
+stimulus geometry and the data schema are identical to the game's; each data file records which
+condition it came from in `gameParams.gamified`. It combines with the switches above
+(`?gamified=0&levels=1-3&trials=3`).
+
+### On a phone or tablet
+
+The game plays on touch devices: a tap replaces SPACE, and on the two-alternative levels (2-5) the
+left and right halves of the screen replace the arrow keys. Prompts and instructions name the
+gesture rather than the key, and the cutscene is advanced with a tap and skipped with a held
+finger. The stage is a fixed 16:9, so the game asks to be held sideways — Android is pinned to
+landscape once it is granted fullscreen, while on iPhone (where Safari supports neither the
+Fullscreen API nor an orientation lock) the rotate prompt is the whole mechanism.
+
+`?touch=1` forces the touch path on a desktop and `?touch=0` forces it off, which is how to look at
+either presentation without the matching hardware.
+
+**Touch responses are not keyboard responses.** They are slower and noisier, and how much depends
+on the handset, so a mobile run is not directly comparable with a desktop one. Each level's
+`gameParams` records `inputModality` (`touch` / `keyboard`) and the `viewport` it ran at; treat the
+two as separate populations rather than pooling them.
 
 
 Studies:
@@ -126,6 +151,7 @@ The arc is **"Bone fever"**, a story about impulsivity that sets up the command-
 
 - **Level 3 (vertical–horizontal)** — *the descent*. A car speeds past the garden and someone throws a bone out of the window. Doggo doesn't think, Doggo runs: out of the gate, into the city, after the bone, then the next one. The three phases are three places and three states of mind, each with its own background (swapped at the phase break like the sprites): **phase 1** happy on a restaurant's pavement terrace, picking up bones left on the tables; **phase 2** eyes going loony, he can't stop and wants MORE, at the kitchen's back door; **phase 3** berserk, *in* the kitchen, the terrified Chef throwing bones just to keep him back. Thrown bones land at any angle, which is what justifies the tilted-bone stimulus without a villain. Sheet: happy with a bone → manic grin, spiral eyes, bristling → full berserk.
 - **Level 4 (Müller-Lyer)** — *Nogo intervenes*. A berserk dog next to his alley is bad for business, so Nogo distracts the Chef and lays a trail of ribboned bones, each looking longer than it is, all the way back home. Sheet: berserk with a ribbon caught on one ear → calming, ribbon bandana → exhausted and sheepish at the gate.
+  - **Stimulus change (Sept 2026), narrative not yet updated.** The task now compares **tied sausages** instead of ribboned bones: a saucisson-style body with a string knotted around each end, and the string's two loose ends splayed at the illusion angle as the Müller-Lyer fins (see `drawSausage` in `game/stimuli.js`). The sausage was chosen because its tip is a single point on the axis and its link string *is* the classic fin, with nothing to justify. The story beats above, the instruction text, the Level 4 cutscene and the "WRONG BONE!" feedback bubble still assume ribbons and bones and need reworking around strings of sausages (e.g. Nogo raiding the Chef's cold room); the Müller-Lyer design itself is unchanged.
 - **Level 5** — *scolded, then trained*. Doggo is told off for running away and the training begins; this is the bridge into the Go/No-go level below. The Ebbinghaus task currently in `level5.js` predates this plan and will be reframed or moved.
 
 **Parked story ideas** (kept for later levels):

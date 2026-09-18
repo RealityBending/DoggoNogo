@@ -10,7 +10,7 @@
  * https://github.com/RealityBending/Pyllusion; Makowski et al., psyarxiv/873th):
  *
  *   Level 3 — Vertical-horizontal   (game/levels/level3.js)
- *   Level 4 — Müller-Lyer           (game/levels/level4.js)
+ *   Level 4 — Müller-Lyer           (game/levels/level4.js; tied sausages rather than bones)
  *   Level 5 — Ebbinghaus            (game/levels/level5.js; placeholder without context circles yet)
  *
  * Two orthogonal parameters describe every trial, both sampled fresh in `placeStimulus` and logged
@@ -82,6 +82,7 @@
 
 import { DoggoNogoBaseLevel } from "../core.js"
 import { DoggoNogoCore, DoggoNogoUI, DoggoNogoTrialTypes as TrialTypes } from "../game.js"
+import { DoggoNogoInput } from "../input.js"
 
 /**
  * Sizes are logged as fractions of canvas height, not pixels: the same fraction means the same
@@ -278,8 +279,8 @@ export const DoggoNogoIllusionLevel = {
         // The wrong-answer bubble is the illusion levels' own ("WRONG BONE!") rather than another
         // borrow from Level 1, which is a simple RT task with no error art: pointing this at Level
         // 1's EARLY bubble is what used to tell a wrong answer "TOO EARLY". It lives under level3/
-        // because Levels 3 and 4 both judge bone length and share this one file; Level 5 judges
-        // yarn balls and will want its own wording.
+        // because it was drawn for Level 3's bones. Level 4 now judges sausages and Level 5 yarn
+        // balls, so both still say "WRONG BONE!" and each wants its own wording (TODO, art).
         this.assets.imgFeedbackError.src = base + "level3/feedback_error1.webp"
         this.assets.imgFeedbackFast1.src = base + "level1/feedback_fast1.webp"
         this.assets.imgFeedbackFast2.src = base + "level1/feedback_fast2.webp"
@@ -349,15 +350,20 @@ export const DoggoNogoIllusionLevel = {
      * `drawInstructionFrame` in core.js) so these levels look like Levels 1 and 2. The visual is
      * an example pair drawn by the level's `drawInstructionDemo` - which uses the same stimulus
      * code path as the task, so the demonstration cannot drift away from what the player is about
-     * to see - with the matching arrow keycap under each side.
+     * to see - with the matching arrow keycap under each side (on touch, the half of the screen
+     * to tap).
      */
     showInstructionScreen: function (canvas) {
         const { fx } = DoggoNogoUI
         this.runInstructionScreen(canvas, {
             badge: `LEVEL ${this.levelNumber}`,
             title: this.instructionTitle || `Level ${this.levelNumber}`,
-            lines: this.instructionLines || [],
+            // A level names the sides differently depending on whether they are keys to press
+            // or halves of the screen to tap; `touchInstructionLines` is its second wording.
+            lines: (DoggoNogoInput.isTouch && this.touchInstructionLines) || this.instructionLines || [],
             promptSegments: [{ t: "Press" }, { k: "◀" }, { t: "or" }, { k: "▶" }, { t: "to start" }],
+            // Dropping "Press" would leave a bare pair of arrows; on touch the verb is the point.
+            touchPromptSegments: [{ t: "Tap" }, { k: "◀" }, { t: "or" }, { k: "▶" }, { t: "to start" }],
             drawVisual: (ctx, layout) => {
                 // The demos are laid out at x = 0.3 / 0.7 of the canvas; the keycaps sit under
                 // those same columns, just below the visual band, clear of the tallest demo.

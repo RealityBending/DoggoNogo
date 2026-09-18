@@ -25,6 +25,7 @@
  */
 
 import { DoggoNogoStimuli } from "../stimuli.js"
+import { DoggoNogoUI } from "../game.js"
 import { DoggoNogoIllusionLevel, illusionDefaultParams, borrowedLevel1Assets, round1 } from "./illusion.js"
 
 const angleDeg = (item) => (item && typeof item.angle === "number" ? round1((item.angle * 180) / Math.PI) : "NA")
@@ -92,6 +93,12 @@ export const level3 = {
         "Bones land either side of him: grab the LONGER one with its arrow key.",
         "Careful - a bone landing on its end looks longer than it is!",
     ],
+    // Same beats, named for a screen rather than a keyboard (see `showInstructionScreen` in illusion.js).
+    touchInstructionLines: [
+        "Doggo has followed a bone into the city - and he wants MORE.",
+        "Bones land either side of him: tap the side with the LONGER one.",
+        "Careful - a bone landing on its end looks longer than it is!",
+    ],
 
     /**
      * The outline stack in pixels, from the weights in `params.boneOutlines`. Widths are fractions
@@ -128,11 +135,21 @@ export const level3 = {
      */
     getBreakOverlayLines: function () {
         if (this.state.phaseIndex === 1) {
-            return ["Doggo can't stop. He sniffs his way to the kitchen door...", "Bones fly out at every angle - don't trust the ones on end!", "", "Press SPACE to continue"]
+            return [
+                "Doggo can't stop. He sniffs his way to the kitchen door...",
+                "Bones fly out at every angle - don't trust the ones on end!",
+                "",
+                DoggoNogoUI.words.continueHint,
+            ]
         } else if (this.state.phaseIndex === 2) {
-            return ["Doggo has lost it! He is IN the kitchen.", "The Chef throws bones just to keep him back - the differences get subtle. Look closely!", "", "Press SPACE to continue"]
+            return [
+                "Doggo has lost it! He is IN the kitchen.",
+                "The Chef throws bones just to keep him back - the differences get subtle. Look closely!",
+                "",
+                DoggoNogoUI.words.continueHint,
+            ]
         }
-        return ["Press SPACE to continue"]
+        return [DoggoNogoUI.words.continueHint]
     },
 
     /**

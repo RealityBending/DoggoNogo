@@ -3,6 +3,7 @@
  */
 
 import { DoggoNogoCore, DoggoNogoUI } from "./game.js"
+import { DoggoNogoInput } from "./input.js"
 // Cutscene assets, loaded on first use. The keys mirror the filenames on disk, which are
 // still `intro_*` - renaming those is an asset-folder change, not a code one.
 export const DoggoNogoCutsceneAssets = {
@@ -76,6 +77,10 @@ export const CutsceneRunner = {
             }
             document.addEventListener("keydown", this.boundKeyHandler)
             document.addEventListener("keyup", this.boundKeyUpHandler)
+            // Touch: a tap is a press and a release, which is exactly the pair the advance/skip
+            // pattern above is built on -- tap to step forward, hold to skip the sequence.
+            DoggoNogoInput.attach(canvas)
+            DoggoNogoInput.setMode(DoggoNogoInput.SPACE)
             // Persistent layers, in painting order: the base (a background image, or the colour
             // of the last `fill`), the sprite, then every narration line currently on the page.
             // `redrawPersistent` rebuilds the whole frame from these, so nothing on screen
@@ -449,8 +454,9 @@ export const CutsceneRunner = {
     clearCanvas: function () {}, // no-op (handled per step)
 
     /**
-     * Letterbox bars + a single ghost "SPACE to skip" button, drawn on top of every cutscene
-     * frame for a filmic look. The button sits translucent in the bottom bar and charges up
+     * Letterbox bars + a single ghost "SPACE to skip" button ("HOLD to skip" on touch, where a
+     * tap is the advance and only a held finger skips), drawn on top of every cutscene frame for a
+     * filmic look. The button sits translucent in the bottom bar and charges up
      * with the accent colour while SPACE is held (the hold loop in `_beginSpaceHold` repaints
      * this overlay every frame); a tap still quietly advances one step.
      */
@@ -474,8 +480,11 @@ export const CutsceneRunner = {
         const bh = bar * 0.66
         const keyFont = `${Math.round(bh * 0.34)}px ${theme.display}`
         const tailFont = `${Math.round(bh * 0.56)}px ${theme.font}`
+        // There is no SPACE bar on a phone, and "TAP to skip" would be a lie: a tap advances one
+        // beat, and only a held finger skips. The touch label names the gesture that works.
+        const keyLabel = DoggoNogoInput.isTouch ? "HOLD" : "SPACE"
         ctx.font = keyFont
-        const keyW = ctx.measureText("SPACE").width
+        const keyW = ctx.measureText(keyLabel).width
         ctx.font = tailFont
         const tailW = ctx.measureText("to skip").width
         const gap = bh * 0.3
@@ -507,7 +516,7 @@ export const CutsceneRunner = {
         const ty = h - bar / 2 + bh * 0.05
         ctx.font = keyFont
         ctx.fillStyle = holding ? theme.accent : "rgba(255,255,255,0.72)"
-        ctx.fillText("SPACE", bx + padX, ty)
+        ctx.fillText(keyLabel, bx + padX, ty)
         ctx.font = tailFont
         ctx.fillStyle = holding ? "rgba(255,224,160,0.95)" : "rgba(255,255,255,0.42)"
         ctx.fillText("to skip", bx + padX + keyW + gap, ty)

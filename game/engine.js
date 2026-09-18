@@ -4,6 +4,7 @@
  */
 
 import { DoggoNogoCore, DoggoNogoUI } from "./game.js"
+import { DoggoNogoInput } from "./input.js"
 import { CutsceneRunner, DoggoNogoCutsceneAssets } from "./cutscene.js"
 
 // One-time preload flags, shared by every run in the page.
@@ -78,6 +79,9 @@ export const DoggoNogoEngine = {
                 try {
                     await DoggoNogoCore.preloadAll({
                         basePath: options.assetBasePath,
+                        // Hosts that draw none of the artwork can pass their own (or an empty)
+                        // manifest instead of fetching the game's; omitted, the full one is used.
+                        manifest: options.assetManifest,
                         onProgress: (done, total) => showLoading("Loading the game...", total ? done / total : 0),
                     })
                 } catch (e) {
@@ -151,7 +155,10 @@ export const DoggoNogoEngine = {
             // 1.5 Cover screen (optional skip for chained levels)
             if (!skipCover) {
                 DoggoNogoUI.ambient.set(this.level.assets.imgCover)
-                await this.showCoverScreen()
+                // A host may supply its own start screen through `coverScreen`. Whichever runs, it
+                // owns the session's first user gesture and therefore the fullscreen request, so
+                // this step is not one to skip in order to get a barer presentation.
+                await (options.coverScreen ? options.coverScreen(this.canvas, this) : this.showCoverScreen())
             }
 
             // Run the cutscene if it exists (now after a user interaction)
@@ -202,8 +209,10 @@ export const DoggoNogoEngine = {
                 // This is the endGameCallback from the level
                 this.stop()
                 DoggoNogoUI.ambient.set(null)
-                if (DoggoNogoUI.showScoreScreen) {
-                    // Compute the end-of-level performance summary (IES -> Z -> percentile).
+                // The end-of-level summary (IES -> Z -> percentile) and the parameter snapshot are
+                // data, not display: they are computed whatever screen is shown afterwards, and
+                // whether one is shown at all.
+                {
                     const { meanRT, errorRate, ies, zIES, quantile } = DoggoNogoCore.computeIES(state.data, {
                         populationMean: this.level.params.populationMean,
                         populationSD: this.level.params.populationSD,
@@ -221,6 +230,18 @@ export const DoggoNogoEngine = {
                             trialsPresented: state.trials ?? null,
                         }
                         this.level.state.gameParams = {
+                            // What the run was played on. Recorded once per level rather than per
+                            // trial: it cannot change mid-run, and a touch run is not comparable
+                            // with a keyboard one (see the gotcha in AGENTS.md).
+                            inputModality: DoggoNogoInput.modality,
+                            inputModalityForced: DoggoNogoInput.forced,
+                            // Which presentation the run used, so a data file identifies its own
+                            // condition without depending on the URL it was collected from.
+                            gamified: options.gamified !== false,
+                            viewport:
+                                typeof window !== "undefined"
+                                    ? `${window.innerWidth}x${window.innerHeight}@${window.devicePixelRatio || 1}`
+                                    : null,
                             trialsNumber: this.level.params.trialsNumber,
                             minTrialsPerPhase: this.level.params.minTrialsPerPhase,
                             gameDifficulty: this.level.params.gameDifficulty,
@@ -236,12 +257,17 @@ export const DoggoNogoEngine = {
                         console.warn("Failed to attach performance snapshot", e)
                     }
 
-                    DoggoNogoUI.showScoreScreen(this.canvas, quantile, {
-                        hint: options.continueHint,
-                        playerSprite: this.level.assets.imgPlayer3 || this.level.assets.imgPlayer,
-                    })
-                    // TEMPORARY (data inspection): button to open the recorded data as JSON.
-                    this._showDataButton()
+                    // `scoreScreen` lets a host swap the end-of-level presentation without taking
+                    // the summary above with it.
+                    const scoreScreen = options.scoreScreen || DoggoNogoUI.showScoreScreen
+                    if (scoreScreen) {
+                        scoreScreen(this.canvas, quantile, {
+                            hint: options.continueHint,
+                            playerSprite: this.level.assets.imgPlayer3 || this.level.assets.imgPlayer,
+                        })
+                        // TEMPORARY (data inspection): button to open the recorded data as JSON.
+                        if (options.dataButton !== false) this._showDataButton()
+                    }
                 }
                 if (onFinish) {
                     onFinish(this.level.state)
@@ -339,6 +365,21 @@ export const DoggoNogoEngine = {
         }
     },
 
+    /**
+     * Pins a phone to landscape, once fullscreen has been granted.
+     *
+     * The stage is a fixed 16:9 for the sake of the measurements, so in portrait it collapses to a
+     * strip across the middle of the screen. Android honours this; iPhone Safari supports neither
+     * the Fullscreen API nor `orientation.lock`, so there the request simply fails and the host
+     * page's rotate prompt (see game/index.html) is the only thing standing between a participant
+     * and a game the size of a postage stamp.
+     */
+    _lockLandscape: function () {
+        const orientation = typeof screen !== "undefined" && screen.orientation
+        if (!orientation || typeof orientation.lock !== "function") return
+        orientation.lock("landscape").catch((err) => console.debug("Orientation lock refused", err))
+    },
+
     /** Public helper for levels to trigger the marker flash (e.g., on stimulus onset). */
     flashMarker: function () {
         if (!this._marker || !this._marker.enabled || !this._marker.active) return
@@ -353,6 +394,10 @@ export const DoggoNogoEngine = {
     waitForStart: function () {
         return new Promise((resolve) => {
             const startKeys = (this.level && this.level.startKeys) || ["ArrowDown"]
+            // The instruction screen asks for the level's own response key(s), so a tap here is
+            // already the gesture the trials will use -- the participant practises it once.
+            DoggoNogoInput.attach(this.canvas)
+            DoggoNogoInput.setMode({ keys: startKeys })
             const startHandler = (e) => {
                 if (startKeys.indexOf(e.key) !== -1) {
                     e.preventDefault() // arrow keys would otherwise scroll the page under the canvas
@@ -701,13 +746,21 @@ DoggoNogoEngine.showCoverScreen = function () {
                 document.removeEventListener("keydown", handler)
                 // A keydown is a user gesture, the one context where the browser honours a
                 // fullscreen request. Failure (e.g. iframe policy) is fine: the canvas already
-                // fills the window.
+                // fills the window. A tap arrives here as a synthetic keydown dispatched from
+                // inside the real pointer handler (game/input.js), so it still counts as one.
                 if (this._browserFullscreen && document.documentElement.requestFullscreen && !document.fullscreenElement) {
-                    document.documentElement.requestFullscreen().catch((err) => console.debug("Fullscreen refused", err))
+                    document.documentElement
+                        .requestFullscreen()
+                        .then(() => this._lockLandscape())
+                        .catch((err) => console.debug("Fullscreen refused", err))
                 }
                 exiting = true
             }
         }
+        // The cover screen is the game's first gesture, and on a phone it is also what buys the
+        // fullscreen and the orientation lock below.
+        DoggoNogoInput.attach(this.canvas)
+        DoggoNogoInput.setMode(DoggoNogoInput.SPACE)
         document.addEventListener("keydown", handler)
     })
 }

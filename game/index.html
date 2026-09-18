@@ -2,12 +2,28 @@
 <html lang="en">
     <head>
         <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+        />
         <title>Doggo/Nogo: The Game</title>
         <style>
             :root {
                 --target-width: 1920;
                 --target-height: 1080;
+            }
+            html,
+            body {
+                /* Every touch gesture the browser would otherwise claim is claimed here instead:
+                   a scroll, a pull-to-refresh, a double-tap zoom or a long-press callout landing
+                   mid-trial is at best a distraction and at worst a lost response. Taps reach the
+                   game through game/input.js, which is the only thing that should read them. */
+                touch-action: none;
+                overscroll-behavior: none;
+                user-select: none;
+                -webkit-user-select: none;
+                -webkit-touch-callout: none;
+                -webkit-tap-highlight-color: transparent;
             }
             body {
                 margin: 0;
@@ -15,8 +31,73 @@
                 justify-content: center;
                 align-items: center;
                 min-height: 100vh;
+                /* Mobile browser chrome is counted by `vh` but not actually available, so `100vh`
+                   overflows by the height of the address bar and leaves the stage scrollable.
+                   `dvh` is the measurement that tracks the chrome; the `vh` line above stays as
+                   the fallback for anything that does not know it. */
+                min-height: 100dvh;
                 /* Dark stage so the canvas reads like a theatre screen, not a form element */
                 background: radial-gradient(ellipse at 50% 35%, #182036 0%, #0c101d 55%, #070a12 100%);
+            }
+
+            /* Rotate prompt. The stage is a fixed 16:9 for the sake of the measurements, so in
+               portrait it collapses to a strip across the middle of a phone. Android is pinned to
+               landscape once fullscreen is granted (`_lockLandscape` in game/engine.js); iPhone
+               Safari supports neither the Fullscreen API nor an orientation lock, so on those
+               devices this prompt is the whole mechanism rather than a fallback. */
+            #rotate {
+                display: none;
+                position: fixed;
+                inset: 0;
+                z-index: 10;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                gap: 22px;
+                padding: 24px;
+                text-align: center;
+                background: #070a12;
+                color: #f4f6fb;
+                font: 400 20px "VT323", "Segoe UI", Arial, sans-serif;
+            }
+            #rotate .glyph {
+                width: 68px;
+                height: 108px;
+                border: 3px solid #ffc857;
+                border-radius: 12px;
+                animation: tilt 1.8s ease-in-out infinite;
+            }
+            #rotate .title {
+                font: 400 13px "Press Start 2P", "Trebuchet MS", Arial, sans-serif;
+                color: #ffc857;
+                line-height: 1.8;
+            }
+            #rotate .sub {
+                font-size: 24px;
+                color: rgba(244, 246, 251, 0.62);
+            }
+            @keyframes tilt {
+                0%,
+                45% {
+                    transform: rotate(0deg);
+                }
+                70%,
+                100% {
+                    transform: rotate(-90deg);
+                }
+            }
+            /* Only on a touch device: a portrait desktop window is the player's own choice, and
+               the letterbox there is merely ugly rather than unplayable. */
+            @media (orientation: portrait) {
+                body.is-touch #rotate {
+                    display: flex;
+                }
+            }
+            @media (prefers-reduced-motion: reduce) {
+                #rotate .glyph {
+                    animation: none;
+                    transform: rotate(-90deg);
+                }
             }
             /* Ambient surround: a blurred, darkened copy of the scene on stage, painted behind the
                canvas so the letterbox on screens that aren't 16:9 continues the picture instead
@@ -52,6 +133,11 @@
         <div id="canvasWrapper">
             <canvas id="gameCanvas"></canvas>
         </div>
+        <div id="rotate">
+            <div class="glyph"></div>
+            <div class="title">TURN YOUR PHONE</div>
+            <div class="sub">Doggo needs the screen sideways.</div>
+        </div>
 
         <!-- STANDALONE VERSION OF THE GAME -->
 
@@ -60,6 +146,7 @@
             // (or start partway through the chain -- see LEVELS / START_LEVEL below).
             import { DoggoNogoCore, DoggoNogoUI } from "./game.js"
             import { DoggoNogoEngine } from "./engine.js"
+            import { DoggoNogoInput } from "./input.js"
             import { level1 } from "./levels/level1.js"
             import { level2 } from "./levels/level2.js"
             import { level3 } from "./levels/level3.js"
@@ -132,11 +219,22 @@
                 ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
             }
 
+            // Arms the touch path: the rotate prompt only ever shows on a touch device (see the
+            // `#rotate` rules), and taps are swallowed while it is up so a participant cannot
+            // answer a trial they cannot see.
+            document.body.classList.toggle("is-touch", DoggoNogoInput.isTouch)
+            function syncOrientation() {
+                const portrait = window.innerHeight > window.innerWidth
+                DoggoNogoInput.suspended = DoggoNogoInput.isTouch && portrait
+            }
+
             sizeCanvas()
             paintAmbient()
+            syncOrientation()
             window.addEventListener("resize", () => {
                 sizeCanvas()
                 paintAmbient()
+                syncOrientation()
                 // Let current running level recompute sprite sizes/positions (engine also listens, but call directly for immediate effect)
                 if (DoggoNogoEngine.level && typeof DoggoNogoEngine.level.handleResize === "function") {
                     DoggoNogoEngine.level.handleResize()
@@ -224,7 +322,7 @@
                 return ALL_LEVELS.slice(requested - 1)
             }
 
-            const LEVELS = resolveChain()
+            let LEVELS = resolveChain()
             // The chain always starts at its own first entry now that it is already the subset.
             const startIndex = 0
 
@@ -245,6 +343,19 @@
             }
             applyTrialsOverride()
 
+            /**
+             * `?gamified=0` runs the barebones comparison condition: the same tasks with the same
+             * timing, scoring and stimulus geometry, stripped of every gamified layer (see
+             * game/plain/mode.js). REMOVABLE — this block and the `game/plain/` folder are the
+             * whole feature. The import is dynamic, so a normal run never fetches the module.
+             */
+            let conditionOptions = {}
+            if (/^(0|false|no)$/i.test(new URLSearchParams(window.location.search).get("gamified") ?? "")) {
+                const { installPlainMode, plainEngineOptions } = await import("./plain/mode.js")
+                LEVELS = installPlainMode(LEVELS)
+                conditionOptions = plainEngineOptions
+            }
+
             function runLevel(index) {
                 const { level, cutscene, number } = LEVELS[index]
                 const isLast = index === LEVELS.length - 1
@@ -258,7 +369,7 @@
                     skipCover: index !== startIndex,
                     // Only the levels still to come are worth preloading.
                     otherLevels: LEVELS.slice(index + 1).map((entry) => entry.level),
-                    continueHint: isLast ? "Press SPACE to finish" : "Press SPACE to continue",
+                    continueHint: isLast ? DoggoNogoUI.words.finishHint : DoggoNogoUI.words.continueHint,
                     onFinish: (state) => {
                         // The level's own number, not its position: with `?levels=` the chain is a
                         // subset and the two no longer agree.
@@ -273,6 +384,9 @@
                                     // `renderEndScreen` stops the score screen's animation itself;
                                     // the engine has already cleared the ambient surround.
                                     DoggoNogoCore.renderEndScreen(canvas)
+                                    // Nothing left to advance to, so nothing left for a tap to do
+                                    // (the screen is deliberately terminal -- see game.js).
+                                    DoggoNogoInput.setMode(null)
                                 } else {
                                     runLevel(index + 1)
                                 }
@@ -280,6 +394,8 @@
                         }
                         document.addEventListener("keydown", proceed)
                     },
+                    // Empty in the normal run; the plain condition's screen overrides otherwise.
+                    ...conditionOptions,
                 })
             }
 
