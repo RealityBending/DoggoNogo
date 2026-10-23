@@ -5,7 +5,7 @@ export const level1Cutscene = [
     { type: "fill", color: "black" },
     {
         type: "text",
-        what: "You are an investigator tasked with bringing down criminals that mistreat animals.",
+        what: "TEST TEST. You are an investigator tasked with bringing down criminals that mistreat animals.",
         animation: "appear",
     },
     { type: "wait", duration: 3000 },
